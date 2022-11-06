@@ -94,10 +94,15 @@ class LVT(nn.Module):
         self.stage2 = nn.Sequential(*[TransformerBlock(dim=dim*2, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias) for i in range(2)])
         self.shrink2 = nn.Conv2d(dim*2, dim*4, kernel_size=3, stride=2, padding=1, bias=bias)
         self.stage3 = nn.Sequential(*[TransformerBlock(dim=dim*4, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias) for i in range(2)])
-        # self.injection_classifier = Classifier
+        # self.injection_classifier = Classifier(features_dim = feature, n_classes = 10, init = 'kaiming')
+        # self.accumulation_classifier = Classifier(features_dim = feature, n_classes = 10, init = 'kaiming')
         
     def forward(self, input):
         out = self.backbone(input)
         out = self.shrink1(self.stage1(out))
         out = self.shrink2(self.stage2(out))
         out = F.adaptive_avg_pool2d(out, (1, 1))
+        out1 = self.injection_classifier(out)
+        out2 = self.accumulation_classifier(out)
+        
+        return out1, out2

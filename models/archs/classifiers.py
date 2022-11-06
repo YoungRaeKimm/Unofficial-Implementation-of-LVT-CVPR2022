@@ -20,8 +20,8 @@ class Classifier(nn.Module):
         super().__init__()
 
         self.features_dim = features_dim
-        self.init_method = init
         self.n_classes = n_classes
+        self.init_method = init
 
 
     @property
