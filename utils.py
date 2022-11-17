@@ -30,7 +30,7 @@ def confidence_score(z, c):
         score[i] = np.exp(z[i, c[i]]) / (np.exp(z[i, :])).sum()
     return score
 
-class Memory(Dataset):
+class MemoryDataset(Dataset):
     def __init__(self, x, y, t, k):
         self.x = x
         self.y = y
@@ -59,5 +59,7 @@ class Memory(Dataset):
         self.t = new_t
         self.k = new_k
     
-    def update_memory(self, label):
-        pass
+    def update_memory(self, label, new_x, new_y, new_t):
+        self.x[label*self.k:(label+1)*self.k] = new_x
+        self.y[label*self.k:(label+1)*self.k] = new_y
+        self.t[label*self.k:(label+1)*self.k] = new_t
