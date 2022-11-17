@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.utils.data import DataLoader
 from models.archs.classifiers import *
 from models.archs.lvt import *
 from utils import IncrementalDataLoader, confidence_score, MemoryDataset
@@ -15,23 +16,33 @@ class Trainer():
         self.memory_size = config.memory_size
         self.ILtype = config.ILtype
         self.data_path = config.data_path
-        self.device = config.device
+        self.scheduler = config.sheduler
+        self.device = torch.device('cuda')
         self.act = nn.Softmax(dim=1)
         if self.dataset == 'tinyimagenet200':
             self.n_classes = 200
         else:
             self.n_classes = 100
         self.increment = self.n_classes/self.split
+        
+        # hyper parameter
+        self.num_head = 2
+        self.hidden_dim = 512
+        self.bias = True
+        
+        self.model = LVT(dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias)
+        self.model.to(self.device)
+        self.optimizer = optim.SGD(self.model.parameters(), lr = self.lr)
+        if self.scheduler:
+            self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, self.train_epoch/10, 0.1)
+        
     
-    def train():
-        model = LVT(dim=, num_heads=, hidden_dim=, bias=)
-        model.to(self.device)
+    def train(self):
         cross_entropy = nn.CrossEntropyLoss()
         kl_divergence = nn.KLDivLoss()
-        optimizr = optim.SGD(modl.parameters(), lr = self.lr)
         memory = torch.zeros(self.memory_size, )
 
-        model.train()
+        self.model.train()
         # Train for each task
         for task in range(self.split):
             data_loader = IncrementalDataLoader(self.dataset, self.data_path, True, self.split, task, self.batch_size)
@@ -41,9 +52,9 @@ class Trainer():
             if task == 0:
                 # In task 0, initialize memory
                 memory = MemoryDataset(
-                    torch.zeros(memory_size, *x.shape[1:]),
-                    torch.zeros(memory_size),
-                    torch.zeros(memory_size),
+                    torch.zeros(self.memory_size, *x.shape[1:]),
+                    torch.zeros(self.memory_size),
+                    torch.zeros(self.memory_size),
                     K
                 )
             else:
@@ -55,25 +66,28 @@ class Trainer():
                     x = x.to(device=self.device)
                     y = y.to(device=self.device)
 
-                    inj_logit, acc_logit = model(x)
-                    L_It = cross_entropy(self.act(inj_logit), y)
-                    L_gamma = cross_entropy(self.act(acc_logit), y)
+                    feature = self.model.forward_backbone(x)
+                    inj_logit = self.model.forward_inj(feature)
+                    L_It = cross_entropy(self.act(self.model.forward_inj(x)), y)
+                    L_a = None
                     
-                    inj_loss.backward()
-                    optimizer.step()
-                
+                    
+                    
                 # Train Examplars from Memory
                 if task > 0:
                     for x, y, t in memory_loader:
                         x = x.to(device=self.device)
                         y = y.to(device=self.device)
 
-                        inj_logit, acc_logit = model(x)
-                        inj_loss = criterion(inj_logit, y)
-                        acc_loss = criterion(acc_logit, y)
+                        acc_logit = self.model.forward_acc(self.model.forward_backbone(x))
+                        L_r = cross_entropy(acc_logit, y)
+                        L_d = None 
+                        L_l = None
                         
-                        acc_loss.backward()
-                        optimizer.step()
+                # accumulate losses at the end of epoch? or end of iteration?        
+                        
+                acc_loss.backward()
+                self.optimizer.step()
 
             # Update Memory
             conf_score_list = []
@@ -85,7 +99,7 @@ class Trainer():
                 labels_list.append(y)
                 x = x.to(device=self.device)
                 y = y.to(device=self.device)
-                inj_logit, acc_logit = model(x)
+                inj_logit, acc_logit = self.model(x)
                 conf_score_list.append(confidence_score(inj_logit, y))
             
             conf_score = np.array(conf_score_list).flatten()

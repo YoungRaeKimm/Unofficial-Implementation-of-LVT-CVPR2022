@@ -1,3 +1,4 @@
+import torch
 from torch.utils.data import DataLoader, Dataset
 from continuum import ClassIncremental
 from continuum.datasets import CIFAR100, TinyImageNet200, ImageNet100
