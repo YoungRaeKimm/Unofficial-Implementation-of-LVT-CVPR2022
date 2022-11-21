@@ -2,6 +2,7 @@ import torch
 import torch.nn.functional as F 
 from torch import nn 
 from torchvision import models
+import copy
 
 from einops import rearrange
 from models.archs.classifiers import Classifier
@@ -81,28 +82,43 @@ class Backbone(nn.Module):
     def __init__(self):
         super(Backbone, self).__init__()
         self.backbone = models.resnet18(pretrained=True)
-        self.backbone = nn.Sequential(*list(self.backbone.modules())[:-2])
+        self.backbone = nn.Sequential(list(self.backbone.modules())[0])
         
-    def foward(self, x):
+    def forward(self, x):
         return self.backbone(x)
     
 class LVT(nn.Module):
-    def __init__(self, dim, num_heads, hidden_dim, bias):
+    def __init__(self, n_class, dim, num_heads, hidden_dim, bias):
+        self.dim = dim
         self.backbone = Backbone()
         self.stage1 = nn.Sequential(*[TransformerBlock(dim=dim, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias) for i in range(2)])
         self.shrink1 = nn.Conv2d(dim, dim*2, kernel_size=3, stride=2, padding=1, bias=bias)
         self.stage2 = nn.Sequential(*[TransformerBlock(dim=dim*2, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias) for i in range(2)])
         self.shrink2 = nn.Conv2d(dim*2, dim*4, kernel_size=3, stride=2, padding=1, bias=bias)
         self.stage3 = nn.Sequential(*[TransformerBlock(dim=dim*4, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias) for i in range(2)])
-        # self.injection_classifier = Classifier(features_dim = feature, n_classes = 10, init = 'kaiming')
-        # self.accumulation_classifier = Classifier(features_dim = feature, n_classes = 10, init = 'kaiming')
+        self.injection_classifier = Classifier(features_dim = dim*4, n_classes = n_class, init = 'kaiming')
+        self.accumulation_classifier = Classifier(features_dim = dim*4, n_classes = n_class, init = 'kaiming')
         
-    def forward(self, input):
+        self.previous_accumulation_classifiers = []
+        
+    def forward_backbone(self, input):
         out = self.backbone(input)
         out = self.shrink1(self.stage1(out))
         out = self.shrink2(self.stage2(out))
         out = F.adaptive_avg_pool2d(out, (1, 1))
-        out1 = self.injection_classifier(out)
-        out2 = self.accumulation_classifier(out)
+        return out
         
-        return out1, out2
+    def forward_inj(self, input):
+        return self.injection_classifier(input)
+    
+    def forward_acc(self, input, prev=False):
+        if prev:
+            return self.previous_accumulation_classifiers[-1](input)
+        else:
+            return self.accumulation_classifier(input)
+        
+    def add_classes(self, n_class):
+        # self.injection_classifier.add_classes(n_class)
+        self.injection_classifier = Classifier(features_dim = self.dim*4, n_classes = n_class, init = 'kaiming')
+        self.previous_accumulation_classifiers.append(copy.deepcopy(self.accumulation_classifier))
+        self.accumulation_classifier.add_classes(n_class)
