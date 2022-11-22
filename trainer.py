@@ -29,8 +29,11 @@ class Trainer():
         self.num_head = 2
         self.hidden_dim = 512
         self.bias = True
+        self.alpha = config.alpha
+        self.beta = config.beta
+        # TODO : Monotonically Decreasing Function gamma(t)
         
-        self.model = LVT(dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias)
+        self.model = LVT(n_class=self.n_classes, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias)
         self.model.to(self.device)
         self.optimizer = optim.SGD(self.model.parameters(), lr = self.lr)
         if self.scheduler:
@@ -40,11 +43,11 @@ class Trainer():
     def train(self):
         cross_entropy = nn.CrossEntropyLoss()
         kl_divergence = nn.KLDivLoss()
-        memory = torch.zeros(self.memory_size, )
 
         self.model.train()
         # Train for each task
         for task in range(self.split):
+            grad_saved=False
             data_loader = IncrementalDataLoader(self.dataset, self.data_path, True, self.split, task, self.batch_size)
             # x : (B, 3, 32, 32) | y : (B,) | t : (B,)
             K = self.memory_size // (self.increment * (task+1))
@@ -69,38 +72,56 @@ class Trainer():
                     feature = self.model.forward_backbone(x)
                     inj_logit = self.model.forward_inj(feature)
                     L_It = cross_entropy(self.act(self.model.forward_inj(x)), y)
-                    L_a = None
+                    L_It.backward()
+                    
+                    if not grad_saved:
+                        grad_K_w = self.model.K_w.grad
+                        grad_B = self.model.B.grad
+                    
+                    L_a = (torch.abs(torch.tensordot(grad_K_w, (self.model.K_w - K_w_prev)))).sum() + \ 
+                            (torch.abs(torch.tensordot(grad_B, (self.model.B - B_prev)))).sum()
+                    
+                    L_a.backward()
                     
                     
                     
                 # Train Examplars from Memory
                 if task > 0:
-                    for x, y, t in memory_loader:
+                    for batch_idx, (x, y, t) in enumerate(memory_loader):
                         x = x.to(device=self.device)
                         y = y.to(device=self.device)
+                        z = z_list[batch_idx].to(device=self.device)
 
                         acc_logit = self.model.forward_acc(self.model.forward_backbone(x))
                         L_r = cross_entropy(acc_logit, y)
-                        L_d = None 
-                        L_l = None
+                        L_d = kl_divergence(z, acc_logit)
+                        L_l = self.alpha * L_r + self.beta * L_d + self.
                         
                 # accumulate losses at the end of epoch? or end of iteration?        
                         
                 acc_loss.backward()
                 self.optimizer.step()
+            
+            # Save ~K_w and ~B
+            K_w_prev = self.model.K_w.clone().detach()
+            B_prev = self.model.B.clone().detach()
 
             # Update Memory
             conf_score_list = []
             x_list = []
             labels_list = []
+            z_list = []
             # Calculate Confidence Score
             for x, y, t in data_loader:
                 x_list.append(x)
                 labels_list.append(y)
                 x = x.to(device=self.device)
                 y = y.to(device=self.device)
-                inj_logit, acc_logit = self.model(x)
+                feature = self.model.forward_backbone(x)
+                inj_logit = self.model.forward_inj(feature)
                 conf_score_list.append(confidence_score(inj_logit, y))
+                # store logit z=inj_logit for each x
+                z_list.append(inj_logit)
             
             conf_score = np.array(conf_score_list).flatten()
             labels = torch.cat(labels_list).flatten()

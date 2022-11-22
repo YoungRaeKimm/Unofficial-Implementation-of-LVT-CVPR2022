@@ -8,7 +8,7 @@ from einops import rearrange
 from models.archs.classifiers import Classifier
 
 class Attention(nn.Module):
-    def __init__(self, dim, num_heads, bias):
+    def __init__(self, dim, num_heads):
         super(Attention, self).__init__()
         self.num_heads = num_heads
         self.temperature = nn.Parameter(torch.ones(num_heads, 1, 1))
@@ -19,20 +19,24 @@ class Attention(nn.Module):
         self.project_out = nn.Conv2d(dim, dim, kernel_size=1, bias=bias)
         
         # self.q = nn.Conv2d(dim, dim, kernel_size=1, bias=bias)
-        self.to_k = nn.Linear(dim, dim, bias = False)
         # self.q_dwconv = nn.Conv2d(dim, dim, kernel_size=3, stride=1, padding=1, groups=dim, bias=bias)
 
-    def forward(self, x, key):
+        # Learnable External Key
+        self.k = nn.Linear(dim, dim, bias = False)
+        # Learnable Attention Bias
+        self.bias = nn.Parameter(torch.rand(dim))
+        
+
+    def forward(self, x):
         b,c,h,w = x.shape
 
         qv = self.to_qv(x)
         q,v = qv.chunk(2, dim=1)
 
-        k = self.to_k(key)  
-        
         q = rearrange(q, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
-        k = rearrange(k, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
+        k = rearrange(self.k, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
         v = rearrange(v, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
+        bias = rearrange(self.bias, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
 
         # q = torch.nn.functional.normalize(q, dim=-1)
         # k = torch.nn.functional.normalize(k, dim=-1)
@@ -42,7 +46,7 @@ class Attention(nn.Module):
         # print("k shape")
         # print(k.shape)
         
-        attn = (q @ k.transpose(-2, -1)) * self.temperature
+        attn = (q @ k.transpose(-2, -1) + bias) * self.temperature
         attn = attn.softmax(dim=-1)
         out = (attn @ v)
         out = rearrange(out, 'b head c (h w) -> b (head c) h w', head=self.num_heads, h=h, w=w)
@@ -98,6 +102,22 @@ class LVT(nn.Module):
         self.stage3 = nn.Sequential(*[TransformerBlock(dim=dim*4, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias) for i in range(2)])
         self.injection_classifier = Classifier(features_dim = dim*4, n_classes = n_class, init = 'kaiming')
         self.accumulation_classifier = Classifier(features_dim = dim*4, n_classes = n_class, init = 'kaiming')
+        self.K_w = torch.concat([
+            self.stage1[0].attn.k.weight,
+            self.stage1[1].attn.k.weight,
+            self.stage2[0].attn.k.weight,
+            self.stage2[1].attn.k.weight,
+            self.stage3[0].attn.k.weight,
+            self.stage3[1].attn.k.weight
+        ])
+        self.B = torch.concat([
+            self.stage1[0].attn.bias,
+            self.stage1[1].attn.bias,
+            self.stage2[0].attn.bias,
+            self.stage2[1].attn.bias,
+            self.stage3[0].attn.bias,
+            self.stage3[1].attn.bias
+        ])
         
         self.previous_accumulation_classifiers = []
         
