@@ -8,7 +8,7 @@ from einops import rearrange
 from models.archs.classifiers import Classifier
 
 class Attention(nn.Module):
-    def __init__(self, dim, num_heads):
+    def __init__(self, dim, num_heads, bias):
         super(Attention, self).__init__()
         self.num_heads = num_heads
         self.temperature = nn.Parameter(torch.ones(num_heads, 1, 1))
@@ -32,6 +32,7 @@ class Attention(nn.Module):
 
         qv = self.to_qv(x)
         q,v = qv.chunk(2, dim=1)
+        print(q.size())
 
         q = rearrange(q, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
         k = rearrange(self.k, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
@@ -121,6 +122,47 @@ class LVT(nn.Module):
         
         self.previous_accumulation_classifiers = []
         
+    
+    def get_K(self):
+        return torch.concat([
+            self.stage1[0].attn.k.weight,
+            self.stage1[1].attn.k.weight,
+            self.stage2[0].attn.k.weight,
+            self.stage2[1].attn.k.weight,
+            self.stage3[0].attn.k.weight,
+            self.stage3[1].attn.k.weight
+        ])
+    
+    def get_bias(self):
+        return torch.concat([
+            self.stage1[0].attn.bias,
+            self.stage1[1].attn.bias,
+            self.stage2[0].attn.bias,
+            self.stage2[1].attn.bias,
+            self.stage3[0].attn.bias,
+            self.stage3[1].attn.bias
+        ])
+        
+    def get_K_grad(self):
+        return torch.concat([
+            self.stage1[0].attn.k.weight.grad,
+            self.stage1[1].attn.k.weight.grad,
+            self.stage2[0].attn.k.weight.grad,
+            self.stage2[1].attn.k.weight.grad,
+            self.stage3[0].attn.k.weight.grad,
+            self.stage3[1].attn.k.weight.grad
+        ])
+    
+    def get_bias_grad(self):
+        return torch.concat([
+            self.stage1[0].attn.bias.grad,
+            self.stage1[1].attn.bias.grad,
+            self.stage2[0].attn.bias.grad,
+            self.stage2[1].attn.bias.grad,
+            self.stage3[0].attn.bias.grad,
+            self.stage3[1].attn.bias.grad
+        ])
+            
     def forward_backbone(self, input):
         out = self.backbone(input)
         out = self.shrink1(self.stage1(out))

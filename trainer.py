@@ -31,10 +31,14 @@ class Trainer():
         self.bias = True
         self.alpha = config.alpha
         self.beta = config.beta
+        self.rt = 1.
+        self.T = 2. # softmax temperature
         # TODO : Monotonically Decreasing Function gamma(t)
         
-        self.model = LVT(n_class=self.n_classes, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias)
-        self.model.to(self.device)
+        self.model = LVT(n_class=self.n_classes, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias).to(self.device)
+        self.prev_model = None
+        if self.ILtype == 'task':
+            self.classifiers = []
         self.optimizer = optim.SGD(self.model.parameters(), lr = self.lr)
         if self.scheduler:
             self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, self.train_epoch/10, 0.1)
@@ -52,6 +56,7 @@ class Trainer():
             # x : (B, 3, 32, 32) | y : (B,) | t : (B,)
             K = self.memory_size // (self.increment * (task+1))
 
+            # memory
             if task == 0:
                 # In task 0, initialize memory
                 memory = MemoryDataset(
@@ -63,25 +68,60 @@ class Trainer():
             else:
                 memory_loader = DataLoader(MemoryDataset, batch_size=self.batch_size)
 
+            # average gradient
+            if task > 0:
+                prev_avg_K_grad = None
+                prev_avg_bias_grad = None
+                length = 0
+                for x, y, _ in data_loader:
+                    length += 1
+                    self.optimizer.zero_grad()
+                    x = x.to(device=self.device)
+                    y = y.to(device=self.device)
+
+                    inj_logit = self.model.forward_inj(self.model.forward_backbone(x))
+                    if prev_avg_K_grad is not None:
+                        cross_entropy(y, self.act(self.model.forward_inj(x) / self.T)).backward()
+                        prev_avg_K_grad += self.model.get_K_grad()
+                        prev_avg_bias_grad += self.model.get_bias_grad()
+                    else:
+                        cross_entropy(y, self.act(self.model.forward_inj(x) / self.T)).backward()
+                        prev_avg_K_grad = self.model.get_K_grad()
+                        prev_avg_bias_grad = self.model.get_bias_grad()
+                prev_avg_K_grad /= length
+                prev_avg_bias_grad /= length
+                K_w_prev = self.model.get_K()
+                K_bias_prev = self.model.get_bias()
+
+
+
+
+            # train
             for epoch in range(self.train_epoch):
+                L_At = None
                 # Train current Task
                 for x, y, t in data_loader:
+                    self.optimizer.zero_grad()
                     x = x.to(device=self.device)
                     y = y.to(device=self.device)
 
                     feature = self.model.forward_backbone(x)
                     inj_logit = self.model.forward_inj(feature)
-                    L_It = cross_entropy(self.act(self.model.forward_inj(x)), y)
-                    L_It.backward()
+                    L_It = cross_entropy(self.act(inj_logit / self.T), y)
+                    acc_logit = self.model.forward_acc(feature)
+                    if L_At is None:
+                        L_At = cross_entropy(y, acc_logit)
+                    else:
+                        L_At += cross_entropy(y, acc_logit)
                     
-                    if not grad_saved:
-                        grad_K_w = self.model.K_w.grad
-                        grad_B = self.model.B.grad
-                    
-                    L_a = (torch.abs(torch.tensordot(grad_K_w, (self.model.K_w - K_w_prev)))).sum() + \ 
-                            (torch.abs(torch.tensordot(grad_B, (self.model.B - B_prev)))).sum()
-                    
-                    L_a.backward()
+                    L_a = None
+                    if task > 0:
+                        L_a = (torch.abs(torch.tensordot(prev_avg_K_grad, (self.model.get_K() - K_w_prev)))).sum() + \
+                                (torch.abs(torch.tensordot(prev_avg_bias_grad, (self.model.get_bias() - K_bias_prev)))).sum()
+                                                
+                    current_task_loss = L_It + L_a 
+                    current_task_loss.backward()
+                    self.optimizer.step()
                     
                     
                     
@@ -93,9 +133,9 @@ class Trainer():
                         z = z_list[batch_idx].to(device=self.device)
 
                         acc_logit = self.model.forward_acc(self.model.forward_backbone(x))
-                        L_r = cross_entropy(acc_logit, y)
+                        L_r = self.act(cross_entropy(acc_logit, y))
                         L_d = kl_divergence(z, acc_logit)
-                        L_l = self.alpha * L_r + self.beta * L_d + self.
+                        L_l = self.alpha*L_r + self.beta*L_d + self.rt*L_At
                         
                 # accumulate losses at the end of epoch? or end of iteration?        
                         
@@ -105,6 +145,7 @@ class Trainer():
             # Save ~K_w and ~B
             K_w_prev = self.model.K_w.clone().detach()
             B_prev = self.model.B.clone().detach()
+            self.prev_model = self.model.clone().detach()
 
             # Update Memory
             conf_score_list = []
@@ -138,4 +179,7 @@ class Trainer():
                 new_y = labels[conf_score_sorted[labels==label][:K]]
                 new_t = torch.full((K,), task)
                 memory.update_memory(label, new_x, new_y, new_t)
+                
+            # updatae r(t)
+            self.rt *= 0.95
         
