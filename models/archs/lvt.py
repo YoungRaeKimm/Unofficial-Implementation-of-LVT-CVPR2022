@@ -93,7 +93,8 @@ class Backbone(nn.Module):
         return self.backbone(x)
     
 class LVT(nn.Module):
-    def __init__(self, n_class, dim, num_heads, hidden_dim, bias):
+    def __init__(self, n_class, IL_type, dim, num_heads, hidden_dim, bias):
+        self.IL_type = IL_type
         self.dim = dim
         self.backbone = Backbone()
         self.stage1 = nn.Sequential(*[TransformerBlock(dim=dim, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias) for i in range(2)])
@@ -120,7 +121,8 @@ class LVT(nn.Module):
             self.stage3[1].attn.bias
         ])
         
-        self.previous_accumulation_classifiers = []
+        if self.IL_type == 'task':
+            self.prev_acc_classifiers = []
         
     
     def get_K(self):
@@ -170,17 +172,19 @@ class LVT(nn.Module):
         out = F.adaptive_avg_pool2d(out, (1, 1))
         return out
         
-    def forward_inj(self, input):
+    def forward_inj(self, input, task_id=None):
         return self.injection_classifier(input)
-    
-    def forward_acc(self, input, prev=False):
-        if prev:
-            return self.previous_accumulation_classifiers[-1](input)
-        else:
+        
+    def forward_acc(self, input, task_id=None):
+        if task_id is None:
             return self.accumulation_classifier(input)
+        else:
+            return self.prev_acc_classifiers[task_id](input)
         
     def add_classes(self, n_class):
         # self.injection_classifier.add_classes(n_class)
         self.injection_classifier = Classifier(features_dim = self.dim*4, n_classes = n_class, init = 'kaiming')
-        self.previous_accumulation_classifiers.append(copy.deepcopy(self.accumulation_classifier))
-        self.accumulation_classifier.add_classes(n_class)
+        if self.IL_type == 'task':
+            self.prev_acc_classifiers.append(copy.deepcopy(self.accumulation_classifier))
+        else:
+            self.accumulation_classifier.add_classes(n_class)

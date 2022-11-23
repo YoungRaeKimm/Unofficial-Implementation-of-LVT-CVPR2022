@@ -4,24 +4,24 @@ from continuum import ClassIncremental
 from continuum.datasets import CIFAR100, TinyImageNet200, ImageNet100
 import numpy as np
 
-def IncrementalDataLoader(dataset_name, data_path, train, n_split, task_id, batch_size):
+def IncrementalDataLoader(dataset_name, data_path, train, n_split, task_id, batch_size, transform):
     if task_id >= n_split:
         return False
 
     dataset_name = dataset_name.lower()
     n_classes = 100
     if dataset_name == 'cifar100':
-        dataset = CIFAR100(data_path, download=False, train=train)
+        dataset = CIFAR100(data_path, download=False, train=train, transform=transform)
     if dataset_name == 'tinyimagenet200':
-        dataset = TinyImageNet200(data_path, download=False, train=train)
+        dataset = TinyImageNet200(data_path, download=False, train=train, transform=transform)
         n_classes = 200
     if dataset_name == 'imagenet100':
-        dataset = ImageNet100(data_path, download=False, train=train)
+        dataset = ImageNet100(data_path, download=False, train=train, transform=transform)
     else:
         return False
 
     scenario = ClassIncremental(dataset, increment=n_classes//n_split)
-    loader = DataLoader(scenario[task_id], batch_size = batch_size)
+    loader = DataLoader(scenario[task_id], batch_size = batch_size, shuffle=True)
     return loader
 
 def confidence_score(z, c):
