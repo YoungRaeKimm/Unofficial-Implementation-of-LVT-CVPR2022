@@ -12,7 +12,7 @@ def get_config(dataset = 'cifar100'):
         config.split=10
         config.memory_size = 200
         config.ILtype = 'task'
-        config.data_path = '/data/cifar100'
+        config.data_path = '/data/nahappy15/cifar100/'
         config.scheduler = False
 
     elif dataset == 'tinyimagenet200':
@@ -22,7 +22,7 @@ def get_config(dataset = 'cifar100'):
         config.split=10
         config.memory_size = 200
         config.ILtype = 'task'
-        config.data_path = '/data/tinyimagenet200'
+        config.data_path = '/data/nahappy15/cifar100/'
         config.scheduler = False
 
     elif dataset == 'imagenet100':
@@ -32,7 +32,7 @@ def get_config(dataset = 'cifar100'):
         config.split=10
         config.memory_size = 200
         config.ILtype = 'task'
-        config.data_path = '/data/imagenet100'
+        config.data_path = '/data/nahappy15/cifar100/'
         config.scheduler = True
 
     return config

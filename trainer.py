@@ -29,7 +29,7 @@ class Trainer():
         self.memory_size = config.memory_size
         self.ILtype = config.ILtype
         self.data_path = config.data_path
-        self.scheduler = config.sheduler
+        self.scheduler = config.scheduler
         self.device = torch.device('cuda')
         self.act = nn.Softmax(dim=1)
         if self.dataset == 'tinyimagenet200':
@@ -50,7 +50,7 @@ class Trainer():
         self.T = 2. # softmax temperature
         # TODO : Monotonically Decreasing Function gamma(t)
         
-        self.model = LVT(n_class=self.n_classes, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias).to(self.device)
+        self.model = LVT(n_class=self.n_classes, IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias).to(self.device)
         self.prev_model = None
         if self.ILtype == 'task':
             self.classifiers = []
@@ -68,7 +68,9 @@ class Trainer():
         for task in range(self.split):
             grad_saved=False
             data_loader = IncrementalDataLoader(self.dataset, self.data_path, True, self.split, task, self.batch_size, transform)
+            # print(data_loader)
             # x : (B, 3, 32, 32) | y : (B,) | t : (B,)
+            x = data_loader.dataset[0]
             K = self.memory_size // (self.increment * (task+1))
 
             # memory
@@ -80,8 +82,8 @@ class Trainer():
                     torch.zeros(self.memory_size),
                     K
                 )
-            else:
-                memory_loader = DataLoader(MemoryDataset, batch_size=self.batch_size, shuffle=True)
+            # else:
+            #     memory_loader = DataLoader(MemoryDataset, batch_size=self.batch_size, shuffle=True)
 
             # average gradient
             if task > 0:
@@ -129,7 +131,9 @@ class Trainer():
                         # Train Examplars from Memory
                         
                         # for batch_idx, (x, y, t) in enumerate(memory_loader):
-                        x,y,t = memory_loader.__getitem__(batch_idx%(self.memory_size//self.batch_size))
+                        # x,y,t = memory_loader.__getitem__(batch_idx%(self.memory_size//self.batch_size))
+                        memory_idx = np.random.permutation(self.memory_size)[:self.batch_size]
+                        x,y,t = memory[memory_idx]
                         x = x.to(device=self.device)
                         y = y.to(device=self.device)
                         # z = z_list[batch_idx].to(device=self.device)

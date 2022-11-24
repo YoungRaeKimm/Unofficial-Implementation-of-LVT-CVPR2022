@@ -11,16 +11,16 @@ def IncrementalDataLoader(dataset_name, data_path, train, n_split, task_id, batc
     dataset_name = dataset_name.lower()
     n_classes = 100
     if dataset_name == 'cifar100':
-        dataset = CIFAR100(data_path, download=False, train=train, transform=transform)
+        dataset = CIFAR100(data_path, download=True, train=train)
     if dataset_name == 'tinyimagenet200':
-        dataset = TinyImageNet200(data_path, download=False, train=train, transform=transform)
+        dataset = TinyImageNet200(data_path, download=False, train=train)
         n_classes = 200
     if dataset_name == 'imagenet100':
-        dataset = ImageNet100(data_path, download=False, train=train, transform=transform)
+        dataset = ImageNet100(data_path, download=False, train=train)
     else:
         return False
 
-    scenario = ClassIncremental(dataset, increment=n_classes//n_split)
+    scenario = ClassIncremental(dataset, increment=n_classes//n_split, transform=transform)
     loader = DataLoader(scenario[task_id], batch_size = batch_size, shuffle=True)
     return loader
 
@@ -43,7 +43,7 @@ class MemoryDataset(Dataset):
         return self.size
     
     def __getitem__(self, idx):
-        return self.x, self.y, self.t
+        return self.x[idx], self.y[idx], self.t[idx]
 
     def remove_examplars(self, new_k):
         new_x = torch.zeros_like(self.x)

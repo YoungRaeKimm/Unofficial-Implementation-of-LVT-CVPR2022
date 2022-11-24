@@ -94,6 +94,7 @@ class Backbone(nn.Module):
     
 class LVT(nn.Module):
     def __init__(self, n_class, IL_type, dim, num_heads, hidden_dim, bias):
+        super(LVT, self).__init__()
         self.IL_type = IL_type
         self.dim = dim
         self.backbone = Backbone()
@@ -104,26 +105,9 @@ class LVT(nn.Module):
         self.stage3 = nn.Sequential(*[TransformerBlock(dim=dim*4, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias) for i in range(2)])
         self.injection_classifier = Classifier(features_dim = dim*4, n_classes = n_class, init = 'kaiming')
         self.accumulation_classifier = Classifier(features_dim = dim*4, n_classes = n_class, init = 'kaiming')
-        self.K_w = torch.concat([
-            self.stage1[0].attn.k.weight,
-            self.stage1[1].attn.k.weight,
-            self.stage2[0].attn.k.weight,
-            self.stage2[1].attn.k.weight,
-            self.stage3[0].attn.k.weight,
-            self.stage3[1].attn.k.weight
-        ])
-        self.B = torch.concat([
-            self.stage1[0].attn.bias,
-            self.stage1[1].attn.bias,
-            self.stage2[0].attn.bias,
-            self.stage2[1].attn.bias,
-            self.stage3[0].attn.bias,
-            self.stage3[1].attn.bias
-        ])
         
         if self.IL_type == 'task':
             self.prev_acc_classifiers = []
-        
     
     def get_K(self):
         return torch.concat([

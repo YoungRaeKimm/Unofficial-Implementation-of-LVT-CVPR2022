@@ -26,6 +26,9 @@ if __name__ == '__main__':
     config.split = args.split
     config.memory_size = args.memorysize
     config.test_every_epoch = args.everytest
+    config.alpha = args.alpha
+    config.beta = args.beta
+    config.gamma = args.gamma
 
 
     trainer = Trainer(config)
