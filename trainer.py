@@ -1,8 +1,11 @@
+import time
+import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
+
+from torch.utils.data import DataLoader
 from models.archs.classifiers import *
 from models.archs.lvt import *
 from utils import IncrementalDataLoader, confidence_score, MemoryDataset
@@ -21,6 +24,7 @@ transform_test = transforms.Compose([
 
 class Trainer():
     def __init__(self, config):
+        self.log_dir = config.log_dir
         self.dataset = config.dataset
         self.train_epoch = config.epoch
         self.batch_size = config.batch_size
@@ -58,6 +62,11 @@ class Trainer():
         if self.scheduler:
             self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, self.train_epoch/10, 0.1)
         
+    def save_model(self, model, task):
+        model_time = time.strftime("%Y%m%d_%H%M")
+        model_name = f"model_{model_time}_task_{task}.pt"
+        print(f'Model saved as {model_name}')
+        torch.save(model.state_dict(), os.path.join(os.path.join(self.log_dir, "saved_models", model_name)))
     
     def train(self):
         cross_entropy = nn.CrossEntropyLoss()
@@ -195,3 +204,5 @@ class Trainer():
             if self.ILtype == 'class':
                 self.model.add_class(self.increment)
                 self.cur_classes += self.increment
+                
+            self.save_model(self.model, task)

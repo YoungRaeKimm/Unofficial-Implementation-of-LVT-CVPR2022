@@ -9,6 +9,7 @@ if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser()
+    parser.add_argument('--log_dir', type = str, default = 'ckpt', help = 'log directory')
     parser.add_argument('--ILtype', type = str, default = 'task', help = 'task, class')
     parser.add_argument('--dataset', type = str, default = 'cifar100', help = 'ciar100, tinyimagenet200, imagenet100')
     parser.add_argument('--split', type = int, default = 10, help = 'number of split') # do not change the default value
@@ -21,6 +22,7 @@ if __name__ == '__main__':
 
     config = get_config(dataset=args.dataset)
     ## default
+    config.log_dir = args.log_dir
     config.ILtype = args.ILtype
     config.dataset = args.dataset
     config.split = args.split
