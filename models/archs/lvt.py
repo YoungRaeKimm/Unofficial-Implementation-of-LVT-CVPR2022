@@ -11,14 +11,16 @@ class Attention(nn.Module):
     def __init__(self, dim, num_heads, bias, device):
         super(Attention, self).__init__()
         self.num_heads = num_heads
-        self.temperature = nn.Parameter(torch.ones(num_heads, 1, 1))
+        
         self.dim = dim
         self.device = device
 
         # self.kv = nn.Conv2d(dim, dim*2, kernel_size=1, bias=bias)
         # self.kv_dwconv = nn.Conv2d(dim*2, dim*2, kernel_size=3, stride=1, padding=1, groups=dim*2, bias=bias)
+        self.temperature = nn.Parameter(torch.ones(num_heads, 1, 1))
         self.to_qv = nn.Linear(dim, dim * 2, bias = False)
         self.project_out = nn.Conv2d(dim, dim, kernel_size=1, bias=bias)
+        self.bn = nn.BatchNorm2d(self.num_heads)
         
         # self.q = nn.Conv2d(dim, dim, kernel_size=1, bias=bias)
         # self.q_dwconv = nn.Conv2d(dim, dim, kernel_size=3, stride=1, padding=1, groups=dim, bias=bias)
@@ -26,21 +28,15 @@ class Attention(nn.Module):
         # Learnable External Key
         self.k = None
         self.bias = None
-        # self.k = nn.Parameter(torch.rand(self.batch_size, dim, 1, 1))
-        # Learnable Attention Bias
-        # self.bias = nn.Parameter(torch.rand(self.batch_size, self.num_heads, dim//self.num_heads, dim//self.num_heads))
-
-        self.bn = nn.BatchNorm2d(self.num_heads)
         
-
     def forward(self, x):
         b,c,h,w = x.shape
 
         if self.k is None:
-            self.k = nn.Parameter(torch.rand(b, self.dim, 1, 1))
+            self.k = nn.Parameter(torch.randn(b, self.dim, 1, 1))
             self.to(self.device)
         if self.bias is None:
-            self.bias = nn.Parameter(torch.rand(b, self.num_heads, self.dim//self.num_heads, self.dim//self.num_heads))
+            self.bias = nn.Parameter(torch.randn(b, self.num_heads, self.dim//self.num_heads, self.dim//self.num_heads))
             self.to(self.device)
 
         # Reshape to feed into linear layer (b, c, h, w) -> (b, c*h*w) where c*h*w == dim

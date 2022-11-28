@@ -22,6 +22,23 @@ transform_test = [
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
 ]
 
+# Recursively initialize the parameters
+def init_xavier(submodule):
+    if isinstance(submodule, torch.nn.Conv2d):
+        torch.nn.init.xavier_uniform_(submodule.weight)
+        if submodule.bias is not None:
+            submodule.bias.data.fill_(0.01)
+    elif isinstance(submodule, torch.nn.BatchNorm2d):
+        submodule.weight.data.fill_(1.0)
+        submodule.bias.data.zero_()
+    elif isinstance(submodule, nn.Linear):
+        torch.nn.init.xavier_uniform_(submodule.weight)
+        if submodule.bias is not None:
+            submodule.bias.data.fill_(0.01)
+    elif isinstance(submodule, Attention):
+        for sm in list(submodule.children()):
+            init_xavier(sm)
+
 class Trainer():
     def __init__(self, config):
         self.log_dir = config.log_dir
@@ -55,6 +72,7 @@ class Trainer():
         # TODO : Monotonically Decreasing Function gamma(t)
         
         self.model = LVT(n_class=self.n_classes, IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias, device=self.device).to(self.device)
+        self.model.apply(init_xavier)
         self.prev_model = None
         if self.ILtype == 'task':
             self.classifiers = []
