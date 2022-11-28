@@ -25,7 +25,7 @@ def IncrementalDataLoader(dataset_name, data_path, train, n_split, task_id, batc
         return False
 
     scenario = ClassIncremental(dataset, increment=n_classes//n_split, transformations=transform)
-    loader = DataLoader(scenario[task_id], batch_size = batch_size, shuffle=True)
+    loader = DataLoader(scenario[task_id], batch_size = batch_size, shuffle=True, drop_last=True)
     return loader
 
 def confidence_score(z, c):

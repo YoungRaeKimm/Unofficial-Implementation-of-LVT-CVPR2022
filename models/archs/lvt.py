@@ -8,10 +8,12 @@ from einops import rearrange
 from models.archs.classifiers import Classifier
 
 class Attention(nn.Module):
-    def __init__(self, dim, num_heads, bias):
+    def __init__(self, dim, num_heads, bias, device):
         super(Attention, self).__init__()
         self.num_heads = num_heads
         self.temperature = nn.Parameter(torch.ones(num_heads, 1, 1))
+        self.dim = dim
+        self.device = device
 
         # self.kv = nn.Conv2d(dim, dim*2, kernel_size=1, bias=bias)
         # self.kv_dwconv = nn.Conv2d(dim*2, dim*2, kernel_size=3, stride=1, padding=1, groups=dim*2, bias=bias)
@@ -22,9 +24,11 @@ class Attention(nn.Module):
         # self.q_dwconv = nn.Conv2d(dim, dim, kernel_size=3, stride=1, padding=1, groups=dim, bias=bias)
 
         # Learnable External Key
-        self.k = nn.Parameter(torch.rand(32, dim, 1, 1))
+        self.k = None
+        self.bias = None
+        # self.k = nn.Parameter(torch.rand(self.batch_size, dim, 1, 1))
         # Learnable Attention Bias
-        self.bias = nn.Parameter(torch.rand(32, self.num_heads, dim//self.num_heads, dim//self.num_heads))
+        # self.bias = nn.Parameter(torch.rand(self.batch_size, self.num_heads, dim//self.num_heads, dim//self.num_heads))
 
         self.bn = nn.BatchNorm2d(self.num_heads)
         
@@ -32,8 +36,16 @@ class Attention(nn.Module):
     def forward(self, x):
         b,c,h,w = x.shape
 
+        if self.k is None:
+            self.k = nn.Parameter(torch.rand(b, self.dim, 1, 1))
+            self.to(self.device)
+        if self.bias is None:
+            self.bias = nn.Parameter(torch.rand(b, self.num_heads, self.dim//self.num_heads, self.dim//self.num_heads))
+            self.to(self.device)
+
         # Reshape to feed into linear layer (b, c, h, w) -> (b, c*h*w) where c*h*w == dim
-        qv = self.to_qv(x.reshape(b, -1))
+        qv = self.to_qv(x.squeeze())
+        # qv = self.to_qv(x.reshape(b, -1))
         q,v = qv.chunk(2, dim=1)
 
         # Unsqueeze to 4 dimension
@@ -57,7 +69,6 @@ class Attention(nn.Module):
         # print(k.shape)
         
         attn = q @ k.transpose(-2, -1)
-        print('attn, bias: ', attn.shape, bias.shape)
         attn = attn + bias
         attn = attn * self.temperature
         attn = attn.softmax(dim=-1)
@@ -65,7 +76,6 @@ class Attention(nn.Module):
         out = rearrange(out, 'b head c (h w) -> b (head c) h w', head=self.num_heads, h=h, w=w)
 
         out = self.project_out(out)
-        print('attn out shape: ', out.shape)
         return out
     
 class FeedForward(nn.Module):
@@ -82,10 +92,10 @@ class FeedForward(nn.Module):
         return self.net(x)
     
 class TransformerBlock(nn.Module):
-    def __init__(self, dim, num_heads, hidden_dim, bias):
+    def __init__(self, dim, num_heads, hidden_dim, bias, device):
         super(TransformerBlock, self).__init__()
 
-        self.attn = Attention(dim, num_heads, bias)
+        self.attn = Attention(dim, num_heads, bias, device)
         self.conv = nn.Conv2d(dim, dim, kernel_size=1, bias=bias)
         self.ffn = FeedForward(dim, hidden_dim, bias)
         self.bn = nn.BatchNorm2d(dim)
@@ -94,7 +104,8 @@ class TransformerBlock(nn.Module):
         out = self.bn(self.conv(self.attn(input)))
         # out = F.batch_norm(self.conv(self.attn(input)),  dim=-1)
         out += input
-        out += self.ffn(out) + out
+        out = self.ffn(out.squeeze()).unsqueeze(2).unsqueeze(2) + out
+        # out += self.ffn(out) + out
 
         return out
     
@@ -108,18 +119,19 @@ class Backbone(nn.Module):
         return self.backbone(x)
     
 class LVT(nn.Module):
-    def __init__(self, n_class, IL_type, dim, num_heads, hidden_dim, bias):
+    def __init__(self, n_class, IL_type, dim, num_heads, hidden_dim, bias, device):
         super(LVT, self).__init__()
         self.IL_type = IL_type
         self.dim = dim
+        self.device = device
         self.backbone = Backbone()
-        self.stage1 = nn.Sequential(*[TransformerBlock(dim=dim, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias) for i in range(2)])
+        self.stage1 = nn.Sequential(*[TransformerBlock(dim=dim, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias, device=self.device) for i in range(2)])
         self.shrink1 = nn.Conv2d(dim, dim*2, kernel_size=3, stride=2, padding=1, bias=bias)
-        self.stage2 = nn.Sequential(*[TransformerBlock(dim=dim*2, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias) for i in range(2)])
+        self.stage2 = nn.Sequential(*[TransformerBlock(dim=dim*2, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias, device=self.device) for i in range(2)])
         self.shrink2 = nn.Conv2d(dim*2, dim*4, kernel_size=3, stride=2, padding=1, bias=bias)
-        self.stage3 = nn.Sequential(*[TransformerBlock(dim=dim*4, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias) for i in range(2)])
-        self.injection_classifier = Classifier(features_dim = dim*4, n_classes = n_class, init = 'kaiming')
-        self.accumulation_classifier = Classifier(features_dim = dim*4, n_classes = n_class, init = 'kaiming')
+        self.stage3 = nn.Sequential(*[TransformerBlock(dim=dim*4, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias, device=self.device) for i in range(2)])
+        self.injection_classifier = Classifier(features_dim = dim*4, n_classes = n_class, init = 'kaiming', device=self.device)
+        self.accumulation_classifier = Classifier(features_dim = dim*4, n_classes = n_class, init = 'kaiming', device=self.device)
         
         if self.IL_type == 'task':
             self.prev_acc_classifiers = []
@@ -166,7 +178,6 @@ class LVT(nn.Module):
             
     def forward_backbone(self, input):
         out = self.backbone(input)
-        print('out_backbone: ', out.shape)
         out = self.shrink1(self.stage1(out))
         out = self.shrink2(self.stage2(out))
         out = F.adaptive_avg_pool2d(out, (1, 1))
@@ -183,7 +194,7 @@ class LVT(nn.Module):
         
     def add_classes(self, n_class):
         # self.injection_classifier.add_classes(n_class)
-        self.injection_classifier = Classifier(features_dim = self.dim*4, n_classes = n_class, init = 'kaiming')
+        self.injection_classifier = Classifier(features_dim = self.dim*4, n_classes = n_class, init = 'kaiming', device=self.device)
         if self.IL_type == 'task':
             self.prev_acc_classifiers.append(copy.deepcopy(self.accumulation_classifier))
         else:

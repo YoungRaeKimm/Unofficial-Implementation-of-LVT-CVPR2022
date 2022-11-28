@@ -54,7 +54,7 @@ class Trainer():
         self.T = 2. # softmax temperature
         # TODO : Monotonically Decreasing Function gamma(t)
         
-        self.model = LVT(n_class=self.n_classes, IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias).to(self.device)
+        self.model = LVT(n_class=self.n_classes, IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias, device=self.device).to(self.device)
         self.prev_model = None
         if self.ILtype == 'task':
             self.classifiers = []
@@ -70,7 +70,7 @@ class Trainer():
     
     def train(self):
         cross_entropy = nn.CrossEntropyLoss()
-        kl_divergence = nn.KLDivLoss()
+        kl_divergence = nn.KLDivLoss(log_target=True)
 
         self.model.train()
         # Train for each task
@@ -105,12 +105,13 @@ class Trainer():
                     y = y.to(device=self.device)
 
                     inj_logit = self.model.forward_inj(self.model.forward_backbone(x))
+                    cross_entropy(y, self.act(inj_logit / self.T)).backward()
                     if prev_avg_K_grad is not None:
-                        cross_entropy(y, self.act(inj_logit / self.T)).backward()
+                        # cross_entropy(y, int_out).backward()
                         prev_avg_K_grad += self.model.get_K_grad()
                         prev_avg_bias_grad += self.model.get_bias_grad()
                     else:
-                        cross_entropy(y, self.act(inj_logit / self.T)).backward()
+                        # cross_entropy(y, self.act(inj_logit / self.T)).backward()
                         prev_avg_K_grad = self.model.get_K_grad()
                         prev_avg_bias_grad = self.model.get_bias_grad()
                 prev_avg_K_grad /= length
@@ -129,10 +130,11 @@ class Trainer():
                     feature = self.model.forward_backbone(x)
                     inj_logit = self.model.forward_inj(feature)
                     acc_logit = self.model.forward_acc(feature)
-                    L_It = cross_entropy(y, self.act(inj_logit))
-                    L_At = cross_entropy(y, acc_logit)
+
+                    L_It = cross_entropy(self.act(inj_logit), y)
+                    L_At = cross_entropy(acc_logit, y)
                     
-                    L_a = None
+                    # Train memory if task>0
                     if task > 0:
                         L_a = (torch.abs(torch.tensordot(prev_avg_K_grad, (self.model.get_K() - K_w_prev)))).sum() + \
                                 (torch.abs(torch.tensordot(prev_avg_bias_grad, (self.model.get_bias() - K_bias_prev)))).sum()
@@ -150,15 +152,20 @@ class Trainer():
                         acc_logit = self.model.forward_acc(self.model.forward_backbone(x))
                         
                         print(f'For dim: acclogit size {acc_logit.size()}, z size {z.size()}')
-
-                        L_r = self.act(cross_entropy(y, acc_logit))
-                        L_d = kl_divergence(self.act(z/self.T), acc_logit)
-                        L_l = self.alpha*L_r + self.beta*L_d + self.rt*L_At
+                    else:
+                        z = acc_logit
+                        L_a = torch.zeros_like(L_It).to(self.device)
+                    print(acc_logit)
+                    L_r = cross_entropy(self.act(acc_logit/self.T), y)
+                    L_d = kl_divergence(self.act(z/self.T), self.act(acc_logit/self.T))
+                    L_l = self.alpha*L_r + self.beta*L_d + self.rt*L_At
                         
                     total_loss = L_l + L_It + self.gamma*L_a
                     total_loss.backward()
                     self.optimizer.step()
                     self.optimizer.zero_grad()
+                
+                print(f'epoch {epoch} | L_l : {L_l}| L_r : {L_r}| L_d : {L_d}| L_At :{L_At}| L_It : {L_It}| L_a : {L_a}| train_loss :{total_loss}')
                     
             
             # Save previous model
@@ -200,6 +207,7 @@ class Trainer():
                 
             # updatae r(t)
             self.rt *= 0.9
+
 
             if self.ILtype == 'class':
                 self.model.add_class(self.increment)

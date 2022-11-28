@@ -14,14 +14,26 @@ class Classifier(nn.Module):
     def __init__(
         self,
         features_dim,
+        device,
         n_classes,
         init="kaiming"
     ):
         super().__init__()
 
         self.features_dim = features_dim
+        self.device = device
         self.n_classes = n_classes
         self.init_method = init
+        self._weights = nn.ParameterList([])
+
+        self.use_bias = False
+        self.normalize = False
+        self.train_negative_weights = False
+        self._negative_weights = None
+        self.use_neg_weights = True
+        self.eval_negative_weights = False
+
+        self.add_classes(n_classes)
 
 
     @property
@@ -67,8 +79,10 @@ class Classifier(nn.Module):
         if self.normalize:
             features = F.normalize(features, dim=1, p=2)
 
-        logits = F.linear(features, weights, bias=self.bias)
-        return {"logits": logits}
+        # Reshape B, C, W, H to B, C*W*H to feed in linear layer
+        # features = features.reshape(features.size(0), -1)
+        logits = F.linear(features.squeeze(), weights, bias=None)
+        return logits
 
     def add_classes(self, n_classes):
         self._weights.append(nn.Parameter(torch.randn(n_classes, self.features_dim)))
