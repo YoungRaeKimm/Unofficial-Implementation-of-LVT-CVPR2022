@@ -159,8 +159,8 @@ class Trainer():
                     
                     # Train memory if task>0
                     if task > 0:
-                        print(f'prev_K_grad : {prev_avg_K_grad.shape}, K : {self.model.get_K().shape}')
-                        print(f'prev_B_grad : {prev_avg_bias_grad.shape}, B : {self.model.get_bias().shape}')
+                        # print(f'prev_K_grad : {prev_avg_K_grad.shape}, K : {self.model.get_K().shape}')
+                        # print(f'prev_B_grad : {prev_avg_bias_grad.shape}, B : {self.model.get_bias().shape}')
                         L_a = (torch.abs(torch.tensordot(prev_avg_K_grad, (self.model.get_K() - K_w_prev)))).sum() + \
                                 (torch.abs(torch.tensordot(prev_avg_bias_grad, (self.model.get_bias() - K_bias_prev), dims=([2, 1], [2, 1])))).sum()
                         
@@ -171,7 +171,7 @@ class Trainer():
                         memory_idx = np.random.permutation(self.memory_size)[:self.batch_size]
                         x,y,t = memory[memory_idx]
                         x = x.to(device=self.device)
-                        y = y.to(device=self.device)
+                        y = y.type(torch.LongTensor).to(device=self.device)
                         # z = z_list[batch_idx].to(device=self.device)
                         z = self.prev_model.forward_acc(self.model.forward_backbone(x))
                         acc_logit = self.model.forward_acc(self.model.forward_backbone(x))
@@ -180,6 +180,7 @@ class Trainer():
                     else:
                         z = acc_logit
                         L_a = torch.zeros_like(L_It).to(self.device)
+
                     L_r = cross_entropy(self.act(acc_logit/self.T), y)
                     L_d = kl_divergence(self.act(z/self.T), self.act(acc_logit/self.T))
                     L_l = self.alpha*L_r + self.beta*L_d + self.rt*L_At
