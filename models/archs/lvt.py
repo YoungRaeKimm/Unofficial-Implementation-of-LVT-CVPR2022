@@ -22,37 +22,50 @@ class Attention(nn.Module):
         # self.q_dwconv = nn.Conv2d(dim, dim, kernel_size=3, stride=1, padding=1, groups=dim, bias=bias)
 
         # Learnable External Key
-        self.k = nn.Linear(dim, dim, bias = False)
+        self.k = nn.Parameter(torch.rand(32, dim, 1, 1))
         # Learnable Attention Bias
-        self.bias = nn.Parameter(torch.rand(dim))
+        self.bias = nn.Parameter(torch.rand(32, self.num_heads, dim//self.num_heads, dim//self.num_heads))
+
+        self.bn = nn.BatchNorm2d(self.num_heads)
         
 
     def forward(self, x):
         b,c,h,w = x.shape
 
-        qv = self.to_qv(x)
+        # Reshape to feed into linear layer (b, c, h, w) -> (b, c*h*w) where c*h*w == dim
+        qv = self.to_qv(x.reshape(b, -1))
         q,v = qv.chunk(2, dim=1)
-        print(q.size())
+
+        # Unsqueeze to 4 dimension
+        q = q.unsqueeze(2).unsqueeze(2)
+        v = v.unsqueeze(2).unsqueeze(2)
 
         q = rearrange(q, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
         k = rearrange(self.k, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
         v = rearrange(v, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
-        bias = rearrange(self.bias, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
+        bias = self.bias
+        # bias = rearrange(self.bias, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
 
         # q = torch.nn.functional.normalize(q, dim=-1)
         # k = torch.nn.functional.normalize(k, dim=-1)
-        v = torch.nn.functional.batch_norm(v, dim=-1)
+
+        v = self.bn(v)
+
         # print("q shape")
         # print(q.shape)
         # print("k shape")
         # print(k.shape)
         
-        attn = (q @ k.transpose(-2, -1) + bias) * self.temperature
+        attn = q @ k.transpose(-2, -1)
+        print('attn, bias: ', attn.shape, bias.shape)
+        attn = attn + bias
+        attn = attn * self.temperature
         attn = attn.softmax(dim=-1)
         out = (attn @ v)
         out = rearrange(out, 'b head c (h w) -> b (head c) h w', head=self.num_heads, h=h, w=w)
 
         out = self.project_out(out)
+        print('attn out shape: ', out.shape)
         return out
     
 class FeedForward(nn.Module):
@@ -75,9 +88,11 @@ class TransformerBlock(nn.Module):
         self.attn = Attention(dim, num_heads, bias)
         self.conv = nn.Conv2d(dim, dim, kernel_size=1, bias=bias)
         self.ffn = FeedForward(dim, hidden_dim, bias)
+        self.bn = nn.BatchNorm2d(dim)
 
     def forward(self, input):
-        out = F.batch_norm(self.conv(self.attn(input)),  dim=-1)
+        out = self.bn(self.conv(self.attn(input)))
+        # out = F.batch_norm(self.conv(self.attn(input)),  dim=-1)
         out += input
         out += self.ffn(out) + out
 
@@ -87,7 +102,7 @@ class Backbone(nn.Module):
     def __init__(self):
         super(Backbone, self).__init__()
         self.backbone = models.resnet18(pretrained=True)
-        self.backbone = nn.Sequential(list(self.backbone.modules())[0])
+        self.backbone = nn.Sequential(*list(self.backbone.children())[:-1])
         
     def forward(self, x):
         return self.backbone(x)
@@ -151,6 +166,7 @@ class LVT(nn.Module):
             
     def forward_backbone(self, input):
         out = self.backbone(input)
+        print('out_backbone: ', out.shape)
         out = self.shrink1(self.stage1(out))
         out = self.shrink2(self.stage2(out))
         out = F.adaptive_avg_pool2d(out, (1, 1))

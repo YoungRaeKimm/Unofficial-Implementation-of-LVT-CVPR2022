@@ -1,7 +1,7 @@
 #!/bin/bash
 
 py3clean ./
-CUDA_VISIBLE_DEVICES=0 python -B ../run.py \
+CUDA_VISIBLE_DEVICES=0 python3 -B ../run.py \
                         --ILtype task \
                         --dataset cifar100 \
                         --split 10 \

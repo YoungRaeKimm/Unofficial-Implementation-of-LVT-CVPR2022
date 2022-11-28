@@ -10,17 +10,17 @@ from models.archs.classifiers import *
 from models.archs.lvt import *
 from utils import IncrementalDataLoader, confidence_score, MemoryDataset
 
-transform = transforms.Compose([
+transform = [
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-])
+]
 
-transform_test = transforms.Compose([
+transform_test = [
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-])
+]
 
 class Trainer():
     def __init__(self, config):
@@ -79,7 +79,7 @@ class Trainer():
             data_loader = IncrementalDataLoader(self.dataset, self.data_path, True, self.split, task, self.batch_size, transform)
             # print(data_loader)
             # x : (B, 3, 32, 32) | y : (B,) | t : (B,)
-            x = data_loader.dataset[0]
+            x = data_loader.dataset[0][0]
             K = self.memory_size // (self.increment * (task+1))
 
             # memory
