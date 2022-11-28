@@ -84,7 +84,8 @@ class Trainer():
         model_time = time.strftime("%Y%m%d_%H%M")
         model_name = f"model_{model_time}_task_{task}.pt"
         print(f'Model saved as {model_name}')
-        torch.save(model.state_dict(), os.path.join(os.path.join(self.log_dir, "saved_models", model_name)))
+        cur_dir = os.path.dirname(os.path.realpath(__file__))
+        torch.save(model.state_dict(), os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", model_name)))
     
     def train(self):
         cross_entropy = nn.CrossEntropyLoss()
@@ -104,7 +105,7 @@ class Trainer():
             if task == 0:
                 # In task 0, initialize memory
                 memory = MemoryDataset(
-                    torch.zeros(self.memory_size, *x.shape[1:]),
+                    torch.zeros(self.memory_size, *x.shape),
                     torch.zeros(self.memory_size),
                     torch.zeros(self.memory_size),
                     K
@@ -123,7 +124,7 @@ class Trainer():
                     y = y.to(device=self.device)
 
                     inj_logit = self.model.forward_inj(self.model.forward_backbone(x))
-                    cross_entropy(y, self.act(inj_logit / self.T)).backward()
+                    cross_entropy(self.act(inj_logit / self.T), y).backward()
                     if prev_avg_K_grad is not None:
                         # cross_entropy(y, int_out).backward()
                         prev_avg_K_grad += self.model.get_K_grad()
@@ -138,6 +139,7 @@ class Trainer():
                 K_bias_prev = self.model.get_bias()
 
 
+
             # train
             for epoch in range(self.train_epoch):
                 # Train current Task
@@ -149,13 +151,18 @@ class Trainer():
                     inj_logit = self.model.forward_inj(feature)
                     acc_logit = self.model.forward_acc(feature)
 
+                    if task == 0:
+                        acc_logit = torch.zeros_like(inj_logit).to(self.device)
+
                     L_It = cross_entropy(self.act(inj_logit), y)
                     L_At = cross_entropy(acc_logit, y)
                     
                     # Train memory if task>0
                     if task > 0:
+                        print(f'prev_K_grad : {prev_avg_K_grad.shape}, K : {self.model.get_K().shape}')
+                        print(f'prev_B_grad : {prev_avg_bias_grad.shape}, B : {self.model.get_bias().shape}')
                         L_a = (torch.abs(torch.tensordot(prev_avg_K_grad, (self.model.get_K() - K_w_prev)))).sum() + \
-                                (torch.abs(torch.tensordot(prev_avg_bias_grad, (self.model.get_bias() - K_bias_prev)))).sum()
+                                (torch.abs(torch.tensordot(prev_avg_bias_grad, (self.model.get_bias() - K_bias_prev), dims=([2, 1], [2, 1])))).sum()
                         
                         # Train Examplars from Memory
                         
@@ -173,27 +180,28 @@ class Trainer():
                     else:
                         z = acc_logit
                         L_a = torch.zeros_like(L_It).to(self.device)
-                    print(acc_logit)
                     L_r = cross_entropy(self.act(acc_logit/self.T), y)
                     L_d = kl_divergence(self.act(z/self.T), self.act(acc_logit/self.T))
                     L_l = self.alpha*L_r + self.beta*L_d + self.rt*L_At
                         
                     total_loss = L_l + L_It + self.gamma*L_a
+
+                    # self.optimizer.zero_grad()
                     total_loss.backward()
                     self.optimizer.step()
                     self.optimizer.zero_grad()
+                    # print(f'batch : {batch_idx} | L : {total_loss} | L_It : {L_It} | L_d :{L_d} | acc : {acc_logit.max()}')
                 
                 print(f'epoch {epoch} | L_l : {L_l}| L_r : {L_r}| L_d : {L_d}| L_At :{L_At}| L_It : {L_It}| L_a : {L_a}| train_loss :{total_loss}')
                     
             
             # Save previous model
-            self.prev_model = self.model.clone().detach()
+            self.prev_model = copy.deepcopy(self.model)
 
             # Update Memory
             conf_score_list = []
             x_list = []
             labels_list = []
-            # z_list = []
             # Calculate Confidence Score
             for x, y, t in data_loader:
                 x_list.append(x)
@@ -202,10 +210,8 @@ class Trainer():
                 y = y.to(device=self.device)
                 feature = self.model.forward_backbone(x)
                 inj_logit = self.model.forward_inj(feature)
-                acc_logit = self.model.forward_acc(feature)
-                conf_score_list.append(confidence_score(inj_logit, y))
+                conf_score_list.append(confidence_score(inj_logit.detach(), y.detach()).numpy())
                 # store logit z=inj_logit for each x
-                # z_list.append(acc_logit)
             
             conf_score = np.array(conf_score_list).flatten()
             labels = torch.cat(labels_list).flatten()
@@ -216,7 +222,7 @@ class Trainer():
                 memory.remove_examplars(K)
 
             # Add new examplars
-            conf_score_sorted = conf_score.argsort()[:,:,-1]
+            conf_score_sorted = conf_score.argsort()[::-1]
             for label in range(self.increment*task, self.increment*(task+1)):
                 new_x = xs[conf_score_sorted[labels==label][:K]]
                 new_y = labels[conf_score_sorted[labels==label][:K]]
@@ -225,7 +231,6 @@ class Trainer():
                 
             # updatae r(t)
             self.rt *= 0.9
-
 
             if self.ILtype == 'class':
                 self.model.add_class(self.increment)

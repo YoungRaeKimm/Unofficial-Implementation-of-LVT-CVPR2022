@@ -36,7 +36,7 @@ class Attention(nn.Module):
             self.k = nn.Parameter(torch.randn(b, self.dim, 1, 1))
             self.to(self.device)
         if self.bias is None:
-            self.bias = nn.Parameter(torch.randn(b, self.num_heads, self.dim//self.num_heads, self.dim//self.num_heads))
+            self.bias = nn.Parameter(torch.randn(b, self.num_heads, (self.dim//self.num_heads)**2, 1))
             self.to(self.device)
 
         # Reshape to feed into linear layer (b, c, h, w) -> (b, c*h*w) where c*h*w == dim
@@ -51,7 +51,7 @@ class Attention(nn.Module):
         q = rearrange(q, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
         k = rearrange(self.k, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
         v = rearrange(v, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
-        bias = self.bias
+        bias = self.bias.view(b, self.num_heads, self.dim//self.num_heads, self.dim//self.num_heads)
         # bias = rearrange(self.bias, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
 
         # q = torch.nn.functional.normalize(q, dim=-1)
@@ -134,13 +134,13 @@ class LVT(nn.Module):
     
     def get_K(self):
         return torch.concat([
-            self.stage1[0].attn.k.weight,
-            self.stage1[1].attn.k.weight,
-            self.stage2[0].attn.k.weight,
-            self.stage2[1].attn.k.weight,
-            self.stage3[0].attn.k.weight,
-            self.stage3[1].attn.k.weight
-        ])
+            self.stage1[0].attn.k,
+            self.stage1[1].attn.k,
+            self.stage2[0].attn.k,
+            self.stage2[1].attn.k,
+            self.stage3[0].attn.k,
+            self.stage3[1].attn.k
+        ], dim=1)
     
     def get_bias(self):
         return torch.concat([
@@ -150,17 +150,17 @@ class LVT(nn.Module):
             self.stage2[1].attn.bias,
             self.stage3[0].attn.bias,
             self.stage3[1].attn.bias
-        ])
+        ], dim=2)
         
     def get_K_grad(self):
         return torch.concat([
-            self.stage1[0].attn.k.weight.grad,
-            self.stage1[1].attn.k.weight.grad,
-            self.stage2[0].attn.k.weight.grad,
-            self.stage2[1].attn.k.weight.grad,
-            self.stage3[0].attn.k.weight.grad,
-            self.stage3[1].attn.k.weight.grad
-        ])
+            self.stage1[0].attn.k.grad,
+            self.stage1[1].attn.k.grad,
+            self.stage2[0].attn.k.grad,
+            self.stage2[1].attn.k.grad,
+            self.stage3[0].attn.k.grad,
+            self.stage3[1].attn.k.grad
+        ], dim=1)
     
     def get_bias_grad(self):
         return torch.concat([
@@ -170,12 +170,13 @@ class LVT(nn.Module):
             self.stage2[1].attn.bias.grad,
             self.stage3[0].attn.bias.grad,
             self.stage3[1].attn.bias.grad
-        ])
+        ], dim=2)
             
     def forward_backbone(self, input):
         out = self.backbone(input)
         out = self.shrink1(self.stage1(out))
         out = self.shrink2(self.stage2(out))
+        out = self.stage3(out)
         out = F.adaptive_avg_pool2d(out, (1, 1))
         return out
         

@@ -30,9 +30,9 @@ def IncrementalDataLoader(dataset_name, data_path, train, n_split, task_id, batc
 
 def confidence_score(z, c):
     B = z.shape[0]
-    score = np.zeros(B)
+    score = torch.zeros(B)
     for i in range(B):
-        score[i] = np.exp(z[i, c[i]]) / (np.exp(z[i, :])).sum()
+        score[i] = torch.exp(z[i, c[i]]) / (torch.exp(z[i, :])).sum()
     return score
 
 class MemoryDataset(Dataset):
@@ -65,6 +65,6 @@ class MemoryDataset(Dataset):
         self.k = new_k
     
     def update_memory(self, label, new_x, new_y, new_t):
-        self.x[label*self.k:(label+1)*self.k] = new_x
+        self.x[label*self.k:(label+1)*self.k,:,:,:] = new_x
         self.y[label*self.k:(label+1)*self.k] = new_y
         self.t[label*self.k:(label+1)*self.k] = new_t
