@@ -154,8 +154,8 @@ class Trainer():
                     if task == 0:
                         acc_logit = torch.zeros_like(inj_logit).to(self.device)
 
-                    L_It = cross_entropy(self.act(inj_logit), y)
-                    L_At = cross_entropy(acc_logit, y)
+                    L_It = cross_entropy(self.act(inj_logit/self.T), y)
+                    L_At = cross_entropy(self.act(acc_logit/self.T), y)
                     
                     # Train memory if task>0
                     if task > 0:
@@ -176,7 +176,7 @@ class Trainer():
                         z = self.prev_model.forward_acc(self.model.forward_backbone(x))
                         acc_logit = self.model.forward_acc(self.model.forward_backbone(x))
                         
-                        print(f'For dim: acclogit size {acc_logit.size()}, z size {z.size()}')
+                        # print(f'For dim: acclogit size {acc_logit.size()}, z size {z.size()}')
                     else:
                         z = acc_logit
                         L_a = torch.zeros_like(L_It).to(self.device)
@@ -184,8 +184,11 @@ class Trainer():
                     L_r = cross_entropy(self.act(acc_logit/self.T), y)
                     L_d = kl_divergence(self.act(z/self.T), self.act(acc_logit/self.T))
                     L_l = self.alpha*L_r + self.beta*L_d + self.rt*L_At
+                    
                         
                     total_loss = L_l + L_It + self.gamma*L_a
+                    print(acc_logit.max())
+                    # print(f'batch {batch_idx} | L_l : {L_l}| L_r : {L_r}| L_d : {L_d}| L_At :{L_At}| L_It : {L_It}| L_a : {L_a}| train_loss :{total_loss}')
 
                     # self.optimizer.zero_grad()
                     total_loss.backward()
