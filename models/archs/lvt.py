@@ -109,7 +109,7 @@ class Backbone(nn.Module):
     def __init__(self):
         super(Backbone, self).__init__()
         self.backbone = models.resnet18(pretrained=True)
-        self.backbone = nn.Sequential(*list(self.backbone.children())[:-1])
+        self.backbone = nn.Sequential(*list(self.backbone.children())[:-2])
         
     def forward(self, x):
         return self.backbone(x)
@@ -121,7 +121,7 @@ class LVT(nn.Module):
         self.IL_type = IL_type
         self.dim = dim
         self.device = device
-        self.backbone = Backbone()
+        self.backbone = Backbone().eval()
         self.stage1 = nn.Sequential(*[TransformerBlock(dim=dim, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias, device=self.device) for i in range(2)])
         self.shrink1 = nn.Conv2d(dim, dim*2, kernel_size=3, stride=2, padding=1, bias=bias)
         self.stage2 = nn.Sequential(*[TransformerBlock(dim=dim*2, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias, device=self.device) for i in range(2)])
@@ -191,7 +191,7 @@ class LVT(nn.Module):
         
     def forward_inj(self, input, task_id=None):
         # return self.injection_classifier(input)
-        print(self.inj_clf(input.squeeze()).size())
+        # print(self.inj_clf(input.squeeze()).size())
         return self.inj_clf(input.squeeze())
         
     def forward_acc(self, input, task_id=None):

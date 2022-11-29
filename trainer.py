@@ -152,7 +152,7 @@ class Trainer():
                     if task == 0:
                         acc_logit = torch.zeros_like(inj_logit).to(self.device)
 
-                    print(inj_logit)
+                    # print(inj_logit)
                     L_It = cross_entropy(inj_logit, y)
                     L_At = cross_entropy(acc_logit, y)
                     
@@ -189,7 +189,13 @@ class Trainer():
                     else:
                         total_loss = L_l + L_It + self.gamma*L_a
                     # print(acc_logit.max())
-                    print(f'batch {batch_idx} | L_l : {L_l}| L_r : {L_r}| L_d : {L_d}| L_At :{L_At}| L_It : {L_It}| L_a : {L_a}| train_loss :{total_loss}')
+                    _, predicted = torch.max(inj_logit, 1)
+                    print(predicted)
+                    print(y)
+                    correct = (predicted == y).sum().item()
+                    total = y.size(0)
+                    
+                    print(f'batch {batch_idx} | L_l : {L_l}| L_r : {L_r}| L_d : {L_d}| L_At :{L_At}| L_It : {L_It}| L_a : {L_a}| train_loss :{total_loss}|  accuracy : {100*correct/total}')
 
                     self.optimizer.zero_grad()
                     total_loss.backward()
@@ -247,3 +253,17 @@ class Trainer():
                 self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, self.train_epoch/10, 0.1)
                 
             self.save_model(self.model, task)
+    
+    def eval(self, task):
+        data_loader = IncrementalDataLoader(self.dataset, self.data_path, False, self.split, task, self.batch_size, transform_test)
+        correct, total = 0, 0
+        for x, y, _ in data_loader:
+            x = x.to(device=self.device)
+
+            acc_logit = self.model.forward_acc(self.model.forward_backbone(x))
+            _, predicted = torch.max(acc_logit, 1)
+            correct += (predicted == y).sum().item()
+            total += y.size(0)
+            
+        print(f'Test accuracy on task {task} : {100*correct/total}')
+        
