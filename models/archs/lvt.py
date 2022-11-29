@@ -117,6 +117,7 @@ class Backbone(nn.Module):
 class LVT(nn.Module):
     def __init__(self, n_class, IL_type, dim, num_heads, hidden_dim, bias, device):
         super(LVT, self).__init__()
+        self.n_class = n_class
         self.IL_type = IL_type
         self.dim = dim
         self.device = device
@@ -126,11 +127,19 @@ class LVT(nn.Module):
         self.stage2 = nn.Sequential(*[TransformerBlock(dim=dim*2, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias, device=self.device) for i in range(2)])
         self.shrink2 = nn.Conv2d(dim*2, dim*4, kernel_size=3, stride=2, padding=1, bias=bias)
         self.stage3 = nn.Sequential(*[TransformerBlock(dim=dim*4, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias, device=self.device) for i in range(2)])
-        self.injection_classifier = Classifier(features_dim = dim*4, n_classes = n_class, init = 'kaiming', device=self.device)
-        self.accumulation_classifier = Classifier(features_dim = dim*4, n_classes = n_class, init = 'kaiming', device=self.device)
+        # self.injection_classifier = Classifier(features_dim = dim*4, n_classes = n_class, init = 'kaiming', device=self.device)
+        # self.accumulation_classifier = Classifier(features_dim = dim*4, n_classes = n_class, init = 'kaiming', device=self.device)
+        self.inj_clf = torch.nn.Linear(dim*4, n_class, bias=False)
+        self.acc_clf = torch.nn.Linear(dim*4, n_class, bias=False)
         
         if self.IL_type == 'task':
-            self.prev_acc_classifiers = []
+            self.prev_acc_clf = []
+            
+
+    def init_clf(self, submodule):
+        torch.nn.init.xavier_uniform_(submodule.weight)
+        if submodule.bias is not None:
+            submodule.bias.data.fill_(0.01)
     
     def get_K(self):
         return torch.concat([
@@ -181,18 +190,26 @@ class LVT(nn.Module):
         return out
         
     def forward_inj(self, input, task_id=None):
-        return self.injection_classifier(input)
+        # return self.injection_classifier(input)
+        print(self.inj_clf(input.squeeze()).size())
+        return self.inj_clf(input.squeeze())
         
     def forward_acc(self, input, task_id=None):
         if task_id is None:
-            return self.accumulation_classifier(input)
+            return self.acc_clf(input.squeeze())
         else:
-            return self.prev_acc_classifiers[task_id](input)
+            return self.prev_acc_clf[task_id](input.squeeze())
         
     def add_classes(self, n_class):
         # self.injection_classifier.add_classes(n_class)
-        self.injection_classifier = Classifier(features_dim = self.dim*4, n_classes = n_class, init = 'kaiming', device=self.device)
+        self.n_class += n_class
+        self.inj_clf = torch.nn.Linear(self.dim*4, self.n_class, bias=False)
+        self.init_clf(self.inj_clf)
+        # self.injection_classifier = Classifier(features_dim = self.dim*4, n_classes = n_class, init = 'kaiming', device=self.device)
         if self.IL_type == 'task':
-            self.prev_acc_classifiers.append(copy.deepcopy(self.accumulation_classifier))
+            self.prev_acc_clf.append(copy.deepcopy(self.acc_clf))
         else:
-            self.accumulation_classifier.add_classes(n_class)
+            weight = self.acc_clf.weight.data.clone().detach()
+            self.acc_clf = torch.nn.Linear(self.dim*4, self.n_class)
+            self.init_clf(self.acc_clf.weight)
+            self.acc_clf.weight.data[:self.n_class-n_class] = weight

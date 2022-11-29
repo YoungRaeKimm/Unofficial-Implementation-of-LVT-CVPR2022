@@ -11,6 +11,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--log_dir', type = str, default = 'ckpt', help = 'log directory')
     parser.add_argument('--ILtype', type = str, default = 'task', help = 'task, class')
+    parser.add_argument('--datapath', type = str, default = '/data/nahappy15/cifar100/', help = 'data path')
     parser.add_argument('--dataset', type = str, default = 'cifar100', help = 'ciar100, tinyimagenet200, imagenet100')
     parser.add_argument('--split', type = int, default = 10, help = 'number of split') # do not change the default value
     parser.add_argument('--memorysize', type = int, default = 200, help = '200 or 500')
@@ -24,6 +25,7 @@ if __name__ == '__main__':
     ## default
     config.log_dir = args.log_dir
     config.ILtype = args.ILtype
+    config.data_path = args.datapath
     config.dataset = args.dataset
     config.split = args.split
     config.memory_size = args.memorysize

@@ -51,7 +51,7 @@ class Trainer():
         self.ILtype = config.ILtype
         self.data_path = config.data_path
         self.scheduler = config.scheduler
-        self.device = torch.device('cuda')
+        self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         self.act = nn.Softmax(dim=1)
         if self.dataset == 'tinyimagenet200':
             self.n_classes = 200
@@ -71,11 +71,9 @@ class Trainer():
         self.T = 2. # softmax temperature
         # TODO : Monotonically Decreasing Function gamma(t)
         
-        self.model = LVT(n_class=self.n_classes, IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias, device=self.device).to(self.device)
+        self.model = LVT(n_class=self.increment, IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias, device=self.device).to(self.device)
         self.model.apply(init_xavier)
         self.prev_model = None
-        if self.ILtype == 'task':
-            self.classifiers = []
         self.optimizer = optim.SGD(self.model.parameters(), lr = self.lr)
         if self.scheduler:
             self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, self.train_epoch/10, 0.1)
@@ -124,7 +122,7 @@ class Trainer():
                     y = y.to(device=self.device)
 
                     inj_logit = self.model.forward_inj(self.model.forward_backbone(x))
-                    cross_entropy(self.act(inj_logit / self.T), y).backward()
+                    cross_entropy(inj_logit, y).backward()
                     if prev_avg_K_grad is not None:
                         # cross_entropy(y, int_out).backward()
                         prev_avg_K_grad += self.model.get_K_grad()
@@ -154,8 +152,9 @@ class Trainer():
                     if task == 0:
                         acc_logit = torch.zeros_like(inj_logit).to(self.device)
 
-                    L_It = cross_entropy(self.act(inj_logit/self.T), y)
-                    L_At = cross_entropy(self.act(acc_logit/self.T), y)
+                    print(inj_logit)
+                    L_It = cross_entropy(inj_logit, y)
+                    L_At = cross_entropy(acc_logit, y)
                     
                     # Train memory if task>0
                     if task > 0:
@@ -181,17 +180,20 @@ class Trainer():
                         z = acc_logit
                         L_a = torch.zeros_like(L_It).to(self.device)
 
-                    L_r = cross_entropy(self.act(acc_logit/self.T), y)
+                    L_r = cross_entropy(acc_logit, y)
                     L_d = kl_divergence(self.act(z/self.T), self.act(acc_logit/self.T))
                     L_l = self.alpha*L_r + self.beta*L_d + self.rt*L_At
                     
-                        
-                    total_loss = L_l + L_It + self.gamma*L_a
-                    print(acc_logit.max())
-                    # print(f'batch {batch_idx} | L_l : {L_l}| L_r : {L_r}| L_d : {L_d}| L_At :{L_At}| L_It : {L_It}| L_a : {L_a}| train_loss :{total_loss}')
+                    if task == 0:
+                        total_loss = L_It
+                    else:
+                        total_loss = L_l + L_It + self.gamma*L_a
+                    # print(acc_logit.max())
+                    print(f'batch {batch_idx} | L_l : {L_l}| L_r : {L_r}| L_d : {L_d}| L_At :{L_At}| L_It : {L_It}| L_a : {L_a}| train_loss :{total_loss}')
 
-                    # self.optimizer.zero_grad()
+                    self.optimizer.zero_grad()
                     total_loss.backward()
+                    # print(self.model.inj_clf.weight.grad)
                     self.optimizer.step()
                     self.optimizer.zero_grad()
                     # print(f'batch : {batch_idx} | L : {total_loss} | L_It : {L_It} | L_d :{L_d} | acc : {acc_logit.max()}')
@@ -239,5 +241,9 @@ class Trainer():
             if self.ILtype == 'class':
                 self.model.add_class(self.increment)
                 self.cur_classes += self.increment
+            
+            self.optimizer = optim.SGD(self.model.parameters(), lr = self.lr)
+            if self.scheduler:
+                self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, self.train_epoch/10, 0.1)
                 
             self.save_model(self.model, task)
