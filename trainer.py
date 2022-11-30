@@ -179,6 +179,8 @@ class Trainer():
                 for batch_idx, (x, y, t) in enumerate(data_loader):
                     x = x.to(device=self.device)
                     y = y.to(device=self.device)
+                    shift_y = torch.full_like(y, task*self.increment)
+                    y = y - shift_y
 
                     feature = self.model.forward_backbone(x)
                     inj_logit = self.model.forward_inj(feature)
@@ -202,29 +204,47 @@ class Trainer():
                         
                         # for batch_idx, (x, y, t) in enumerate(memory_loader):
                         # x,y,t = memory_loader.__getitem__(batch_idx%(self.memory_size//self.batch_size))
-                        memory_idx = np.random.permutation(self.memory_size)[:self.batch_size]
-                        x,y,t = self.memory[memory_idx]
-                        # print(x.size())
-                        # print(y)
-                        x = x.to(self.device)
-                        y = y.type(torch.LongTensor).to(self.device)
+                        t = np.random.randint(0, task)
+                        chunk_size  = (self.memory_size // (self.increment * task)) * self.increment
+                        memory_idx = np.random.permutation(np.arange(chunk_size*t, chunk_size*(t+1)))[:self.batch_size]
+                        # memory_idx = np.random.permutation(self.memory_size)[:self.batch_size]
+                        mx,my,mt = self.memory[memory_idx]
+
+                        # if examplars are smaller than batch, repeat to match the size
+                        if chunk_size < self.batch_size:
+                            mx = torch.concat([mx, mx])[:self.batch_size]
+                            my = torch.concat([my, my])[:self.batch_size]
+                            mt = torch.concat([mt, mt])[:self.batch_size]
+
+                        mx = mx.to(self.device)
+                        my = my.type(torch.LongTensor).to(self.device)
+                        assert(mt.sum()==t*mt.size(0))
+                        mt = t
+
+                        # Shift label to first task
+                        shift_my = torch.full_like(my, mt*self.increment)
+                        my = my - shift_my
+
                         # z = z_list[batch_idx].to(device=self.device)
-                        z = self.prev_model.forward_acc(self.model.forward_backbone(x))
-                        acc_logit = self.model.forward_acc(self.model.forward_backbone(x))
+                        z = self.prev_model.forward_acc(self.model.forward_backbone(mx))
+                        if self.ILtype=='task':
+                            acc_logit = self.model.forward_acc(self.model.forward_backbone(mx), mt)
+                        else:
+                            acc_logit = self.model.forward_acc(self.model.forward_backbone(mx))
                         
                         # print(f'For dim: acclogit size {acc_logit.size()}, z size {z.size()}')
                     else:
                         z = acc_logit
                         L_a = torch.zeros_like(L_It).to(self.device)
 
-                    L_r = cross_entropy(acc_logit, y)
-                    L_d = kl_divergence(self.act(z/self.T), self.act(acc_logit/self.T))
-                    L_l = self.alpha*L_r + self.beta*L_d + self.rt*L_At
-                    
                     if task == 0:
                         total_loss = L_It
                     else:
+                        L_r = cross_entropy(acc_logit, my)
+                        L_d = kl_divergence(self.act(z/self.T), self.act(acc_logit/self.T))
+                        L_l = self.alpha*L_r + self.beta*L_d + self.rt*L_At
                         total_loss = L_l + L_It + self.gamma*L_a
+                        
                     # print(acc_logit.max())
                     _, predicted = torch.max(inj_logit, 1)
                     # print(predicted)
@@ -241,8 +261,10 @@ class Trainer():
                     self.optimizer.zero_grad()
                     # print(f'batch : {batch_idx} | L : {total_loss} | L_It : {L_It} | L_d :{L_d} | acc : {acc_logit.max()}')
                 
-                print(f'epoch {epoch} | L_l : {L_l:.3f}| L_r : {L_r:.3f}| L_d : {L_d:.3f}| L_At :{L_At:.3f}| L_It : {L_It:.3f}| L_a : {L_a:.3f}| train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f}')
-                    
+                if task == 0:
+                    print(f'epoch {epoch} | L_At :{L_At:.3f}| L_It : {L_It:.3f}| L_a : {L_a:.3f}| train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f}')
+                else:
+                    print(f'epoch {epoch} | L_l : {L_l:.3f}| L_r : {L_r:.3f}| L_d : {L_d:.3f}| L_At :{L_At:.3f}| L_It : {L_It:.3f}| L_a : {L_a:.3f}| train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f}')
             
             # Save previous model
             self.prev_model = copy.deepcopy(self.model)
@@ -257,8 +279,11 @@ class Trainer():
                 labels_list.append(y)
                 x = x.to(device=self.device)
                 y = y.to(device=self.device)
+                shift_y = torch.full_like(y, task*self.increment)
+                y = y - shift_y
                 feature = self.model.forward_backbone(x)
                 inj_logit = self.model.forward_inj(feature)
+
                 conf_score_list.append(confidence_score(inj_logit.detach(), y.detach()).numpy())
                 # store logit z=inj_logit for each x
             
@@ -275,20 +300,22 @@ class Trainer():
             for label in range(self.increment*task, self.increment*(task+1)):
                 new_x = xs[conf_score_sorted[labels==label][:K]]
                 new_y = labels[conf_score_sorted[labels==label][:K]]
-                new_t = torch.full((K,), task)
+                new_t = torch.full((K,), task).type(torch.LongTensor)
                 self.memory.update_memory(label, new_x, new_y, new_t)
                 
             # updatae r(t)
             self.rt *= 0.9
 
+            if self.ILtype == 'task':
+                self.model.add_classes(self.increment)
             if self.ILtype == 'class':
-                self.model.add_class(self.increment)
+                self.model.add_classes(self.increment)
                 self.cur_classes += self.increment
             
             self.optimizer = optim.SGD(self.model.parameters(), lr = self.lr)
             if self.scheduler:
                 self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, self.train_epoch/10, 0.1)
-                
+            
             self.save(self.model, self.memory, task)
     
     def eval(self, task):

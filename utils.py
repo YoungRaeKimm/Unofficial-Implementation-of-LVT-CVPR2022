@@ -65,13 +65,15 @@ class MemoryDataset(Dataset):
         new_t = torch.zeros_like(self.t)
 
         for i, start in enumerate(range(0, self.size, self.k)):
+            if start+new_k > self.size:
+                break
             new_x[new_k*i:new_k*(i+1)] = self.x[start:start+new_k]
             new_y[new_k*i:new_k*(i+1)] = self.y[start:start+new_k]
             new_t[new_k*i:new_k*(i+1)] = self.t[start:start+new_k]
 
         self.x = new_x
         self.y = new_y
-        self.t = new_t
+        self.t = new_t.type(torch.LongTensor)
         self.k = new_k
     
     def update_memory(self, label, new_x, new_y, new_t):

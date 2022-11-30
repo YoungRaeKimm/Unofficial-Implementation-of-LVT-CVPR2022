@@ -205,7 +205,8 @@ class LVT(nn.Module):
         
     def add_classes(self, n_class):
         # self.injection_classifier.add_classes(n_class)
-        self.n_class += n_class
+        if self.IL_type == 'class':
+            self.n_class += n_class
         self.inj_clf = torch.nn.Linear(self.dim*4, self.n_class, bias=False)
         self.init_clf(self.inj_clf)
         # self.injection_classifier = Classifier(features_dim = self.dim*4, n_classes = n_class, init = 'kaiming', device=self.device)

@@ -15,7 +15,7 @@ if __name__ == '__main__':
     parser.add_argument('--datapath', type = str, default = '/data/nahappy15/cifar100/', help = 'data path')
     parser.add_argument('--dataset', type = str, default = 'cifar100', help = 'ciar100, tinyimagenet200, imagenet100')
     parser.add_argument('--split', type = int, default = 10, help = 'number of split') # do not change the default value
-    parser.add_argument('--memorysize', type = int, default = 200, help = '200 or 500')
+    parser.add_argument('--memory_size', type = int, default = 200, help = '200 or 500')
     parser.add_argument('--alpha', type = float, default = 0.5, help = 'Loss hyperparameter')
     parser.add_argument('--beta', type = float, default = 0.5, help = 'Loss hyperparameter')
     parser.add_argument('--gamma', type = float, default = 0.5, help = 'Loss hyperparameter')
@@ -33,7 +33,7 @@ if __name__ == '__main__':
     config.data_path = args.datapath
     config.dataset = args.dataset
     config.split = args.split
-    config.memory_size = args.memorysize
+    config.memory_size = args.memory_size
     config.test_every_epoch = args.everytest
     config.alpha = args.alpha
     config.beta = args.beta
