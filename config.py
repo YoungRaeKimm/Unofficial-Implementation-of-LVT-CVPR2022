@@ -7,7 +7,7 @@ def get_config(dataset = 'cifar100'):
 
     if dataset == 'cifar100':
         config.batch_size = 32
-        config.epoch = 100
+        config.epoch = 1
         config.lr=0.01
         config.split=10
         config.memory_size = 500

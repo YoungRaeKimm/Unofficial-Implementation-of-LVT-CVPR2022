@@ -25,7 +25,7 @@ if __name__ == '__main__':
     config = get_config(dataset=args.dataset)
     ## default
     config.resume = args.resume
-    print(config.resume)
+    print(f'Resume : {config.resume}')
     config.resume_task = args.resume_task
     config.resume_time = args.resume_time
     config.log_dir = args.log_dir

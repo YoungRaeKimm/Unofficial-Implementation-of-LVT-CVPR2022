@@ -101,13 +101,14 @@ class Trainer():
         if self.scheduler:
             self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, self.train_epoch/10, 0.1)
         
-    def save_model(self, model, memory, task):
+    def save(self, model, memory, task):
         model_time = time.strftime("%Y%m%d_%H%M")
         model_name = f"model_{model_time}_task_{task}.pt"
         memory_name = f"memory_{model_time}_task_{task}.pt"
         print(f'Model saved as {model_name}')
         print(f'Memory saved as {memory_name}')
         cur_dir = os.path.dirname(os.path.realpath(__file__))
+        print(f'Path : {os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", model_name))}')
         torch.save(model, os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", model_name)))
         with open(os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", memory_name)), 'wb') as f:
             pkl.dump(memory, f)
@@ -203,8 +204,10 @@ class Trainer():
                         # x,y,t = memory_loader.__getitem__(batch_idx%(self.memory_size//self.batch_size))
                         memory_idx = np.random.permutation(self.memory_size)[:self.batch_size]
                         x,y,t = self.memory[memory_idx]
-                        x = x.to(device=self.device)
-                        y = y.type(torch.LongTensor).to(device=self.device)
+                        # print(x.size())
+                        # print(y)
+                        x = x.to(self.device)
+                        y = y.type(torch.LongTensor).to(self.device)
                         # z = z_list[batch_idx].to(device=self.device)
                         z = self.prev_model.forward_acc(self.model.forward_backbone(x))
                         acc_logit = self.model.forward_acc(self.model.forward_backbone(x))
@@ -261,7 +264,7 @@ class Trainer():
             
             conf_score = np.array(conf_score_list).flatten()
             labels = torch.cat(labels_list).flatten()
-            xs = torch.cat(x_list).reshape(-1, *x.shape[1:])
+            xs = torch.cat(x_list).view(-1, *x.shape[1:])
 
             # Reduce examplars to K
             if task > 0:
@@ -289,6 +292,7 @@ class Trainer():
             self.save(self.model, self.memory, task)
     
     def eval(self, task):
+        self.model.eval()
         data_loader = IncrementalDataLoader(self.dataset, self.data_path, False, self.split, task, self.batch_size, transform_test)
         correct, total = 0, 0
         for x, y, _ in data_loader:
@@ -300,4 +304,4 @@ class Trainer():
             total += y.size(0)
             
         print(toGreen(f'Test accuracy on task {task} : {100*correct/total}'))
-        
+        self.model.train()
