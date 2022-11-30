@@ -4,12 +4,22 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torchvision.transforms as transforms
+import pickle as pkl
+import random
+import numpy as np
 
 from torch.utils.data import DataLoader
+from copy import deepcopy
 from models.archs.classifiers import *
 from models.archs.lvt import *
-from utils import IncrementalDataLoader, confidence_score, MemoryDataset
+from utils import IncrementalDataLoader, confidence_score, MemoryDataset, toRed, toBlue, toGreen
 
+seed = 1234
+random.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)
+    
 transform = [
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
@@ -58,6 +68,9 @@ class Trainer():
         else:
             self.n_classes = 100
         self.increment = int(self.n_classes//self.split)
+        self.resume = config.resume
+        self.resume_task = config.resume_task
+        self.resume_time = config.resume_time
         self.cur_classes = self.increment
         
         # hyper parameter
@@ -71,19 +84,33 @@ class Trainer():
         self.T = 2. # softmax temperature
         # TODO : Monotonically Decreasing Function gamma(t)
         
-        self.model = LVT(n_class=self.increment, IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias, device=self.device).to(self.device)
-        self.model.apply(init_xavier)
-        self.prev_model = None
+        if config.resume:
+            self.model = LVT(batch=self.batch_size, n_class=self.increment*self.resume_task, IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias, device=self.device).to(self.device)
+            cur_dir = os.path.dirname(os.path.realpath(__file__))
+            model_name = f'model_{self.resume_time}_task_{self.resume_task-1}.pt'
+            self.model = torch.load(os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", model_name)), map_location=self.device)
+            self.prev_model = deepcopy(self.model).to(self.device)
+            self.model.add_classes(self.increment)
+        else:
+            self.model = LVT(batch=self.batch_size, n_class=self.increment, IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias, device=self.device).to(self.device)
+            self.prev_model = None
+            self.model.apply(init_xavier)
+            
+        self.memory = None
         self.optimizer = optim.SGD(self.model.parameters(), lr = self.lr)
         if self.scheduler:
             self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, self.train_epoch/10, 0.1)
         
-    def save_model(self, model, task):
+    def save_model(self, model, memory, task):
         model_time = time.strftime("%Y%m%d_%H%M")
         model_name = f"model_{model_time}_task_{task}.pt"
+        memory_name = f"memory_{model_time}_task_{task}.pt"
         print(f'Model saved as {model_name}')
+        print(f'Memory saved as {memory_name}')
         cur_dir = os.path.dirname(os.path.realpath(__file__))
-        torch.save(model.state_dict(), os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", model_name)))
+        torch.save(model, os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", model_name)))
+        with open(os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", memory_name)), 'wb') as f:
+            pkl.dump(memory, f)
     
     def train(self):
         cross_entropy = nn.CrossEntropyLoss()
@@ -91,7 +118,8 @@ class Trainer():
 
         self.model.train()
         # Train for each task
-        for task in range(self.split):
+        start_task = self.resume_task if self.resume is True else 0
+        for task in range(start_task, self.split):
             grad_saved=False
             data_loader = IncrementalDataLoader(self.dataset, self.data_path, True, self.split, task, self.batch_size, transform)
             # print(data_loader)
@@ -100,15 +128,20 @@ class Trainer():
             K = self.memory_size // (self.increment * (task+1))
 
             # memory
-            if task == 0:
-                # In task 0, initialize memory
-                memory = MemoryDataset(
-                    torch.zeros(self.memory_size, *x.shape),
-                    torch.zeros(self.memory_size),
-                    torch.zeros(self.memory_size),
-                    K
-                )
-            # else:
+            if self.memory is None:
+                if self.resume:
+                    cur_dir = os.path.dirname(os.path.realpath(__file__))
+                    memory_name = f'model_{self.resume_time}_task_{self.resume_task-1}.pt'
+                    with open(os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", memory_name)), 'rb') as f:
+                        self.memory = pkl.load(f)
+                else:
+                    self.memory = MemoryDataset(
+                        torch.zeros(self.memory_size, *x.shape),
+                        torch.zeros(self.memory_size),
+                        torch.zeros(self.memory_size),
+                        K
+                    )
+                # else:
             #     memory_loader = DataLoader(MemoryDataset, batch_size=self.batch_size, shuffle=True)
 
             # average gradient
@@ -122,7 +155,7 @@ class Trainer():
                     y = y.to(device=self.device)
 
                     inj_logit = self.model.forward_inj(self.model.forward_backbone(x))
-                    cross_entropy(inj_logit, y).backward()
+                    # cross_entropy(inj_logit, y).backward()
                     if prev_avg_K_grad is not None:
                         # cross_entropy(y, int_out).backward()
                         prev_avg_K_grad += self.model.get_K_grad()
@@ -141,6 +174,7 @@ class Trainer():
             # train
             for epoch in range(self.train_epoch):
                 # Train current Task
+                correct, total = 0, 0
                 for batch_idx, (x, y, t) in enumerate(data_loader):
                     x = x.to(device=self.device)
                     y = y.to(device=self.device)
@@ -168,7 +202,7 @@ class Trainer():
                         # for batch_idx, (x, y, t) in enumerate(memory_loader):
                         # x,y,t = memory_loader.__getitem__(batch_idx%(self.memory_size//self.batch_size))
                         memory_idx = np.random.permutation(self.memory_size)[:self.batch_size]
-                        x,y,t = memory[memory_idx]
+                        x,y,t = self.memory[memory_idx]
                         x = x.to(device=self.device)
                         y = y.type(torch.LongTensor).to(device=self.device)
                         # z = z_list[batch_idx].to(device=self.device)
@@ -190,12 +224,12 @@ class Trainer():
                         total_loss = L_l + L_It + self.gamma*L_a
                     # print(acc_logit.max())
                     _, predicted = torch.max(inj_logit, 1)
-                    print(predicted)
-                    print(y)
-                    correct = (predicted == y).sum().item()
-                    total = y.size(0)
+                    # print(predicted)
+                    # print(y)
+                    correct += (predicted == y).sum().item()
+                    total += y.size(0)
                     
-                    print(f'batch {batch_idx} | L_l : {L_l}| L_r : {L_r}| L_d : {L_d}| L_At :{L_At}| L_It : {L_It}| L_a : {L_a}| train_loss :{total_loss}|  accuracy : {100*correct/total}')
+                    # print(f'batch {batch_idx} | L_l : {L_l}| L_r : {L_r}| L_d : {L_d}| L_At :{L_At}| L_It : {L_It}| L_a : {L_a}| train_loss :{total_loss}|  accuracy : {100*correct/total}')
 
                     self.optimizer.zero_grad()
                     total_loss.backward()
@@ -204,7 +238,7 @@ class Trainer():
                     self.optimizer.zero_grad()
                     # print(f'batch : {batch_idx} | L : {total_loss} | L_It : {L_It} | L_d :{L_d} | acc : {acc_logit.max()}')
                 
-                print(f'epoch {epoch} | L_l : {L_l}| L_r : {L_r}| L_d : {L_d}| L_At :{L_At}| L_It : {L_It}| L_a : {L_a}| train_loss :{total_loss}')
+                print(f'epoch {epoch} | L_l : {L_l:.3f}| L_r : {L_r:.3f}| L_d : {L_d:.3f}| L_At :{L_At:.3f}| L_It : {L_It:.3f}| L_a : {L_a:.3f}| train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f}')
                     
             
             # Save previous model
@@ -231,7 +265,7 @@ class Trainer():
 
             # Reduce examplars to K
             if task > 0:
-                memory.remove_examplars(K)
+                self.memory.remove_examplars(K)
 
             # Add new examplars
             conf_score_sorted = conf_score.argsort()[::-1]
@@ -239,7 +273,7 @@ class Trainer():
                 new_x = xs[conf_score_sorted[labels==label][:K]]
                 new_y = labels[conf_score_sorted[labels==label][:K]]
                 new_t = torch.full((K,), task)
-                memory.update_memory(label, new_x, new_y, new_t)
+                self.memory.update_memory(label, new_x, new_y, new_t)
                 
             # updatae r(t)
             self.rt *= 0.9
@@ -252,7 +286,7 @@ class Trainer():
             if self.scheduler:
                 self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, self.train_epoch/10, 0.1)
                 
-            self.save_model(self.model, task)
+            self.save(self.model, self.memory, task)
     
     def eval(self, task):
         data_loader = IncrementalDataLoader(self.dataset, self.data_path, False, self.split, task, self.batch_size, transform_test)
@@ -265,5 +299,5 @@ class Trainer():
             correct += (predicted == y).sum().item()
             total += y.size(0)
             
-        print(f'Test accuracy on task {task} : {100*correct/total}')
+        print(toGreen(f'Test accuracy on task {task} : {100*correct/total}'))
         

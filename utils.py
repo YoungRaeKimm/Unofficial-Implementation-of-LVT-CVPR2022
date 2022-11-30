@@ -5,6 +5,16 @@ from continuum.datasets import CIFAR100, TinyImageNet200, ImageNet100
 import numpy as np
 import os
 
+
+def toRed(content):
+    return termcolor.colored(content,"red",attrs=["bold"])
+
+def toGreen(content):
+    return termcolor.colored(content,"green",attrs=["bold"])
+
+def toBlue(content):
+    return termcolor.colored(content,"blue",attrs=["bold"])
+
 def IncrementalDataLoader(dataset_name, data_path, train, n_split, task_id, batch_size, transform):
     if task_id >= n_split:
         print(f'task id {task_id} > n_split {n_split}')

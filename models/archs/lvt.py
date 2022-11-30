@@ -8,7 +8,7 @@ from einops import rearrange
 from models.archs.classifiers import Classifier
 
 class Attention(nn.Module):
-    def __init__(self, dim, num_heads, bias, device):
+    def __init__(self, batch, dim, num_heads, bias, device):
         super(Attention, self).__init__()
         self.num_heads = num_heads
         
@@ -26,18 +26,21 @@ class Attention(nn.Module):
         # self.q_dwconv = nn.Conv2d(dim, dim, kernel_size=3, stride=1, padding=1, groups=dim, bias=bias)
 
         # Learnable External Key
-        self.k = None
-        self.bias = None
+        # self.k = None
+        # self.bias = None
+        
+        self.k = nn.Parameter(torch.randn(batch, self.dim, 1, 1))
+        self.bias = nn.Parameter(torch.randn(batch, self.num_heads, (self.dim//self.num_heads)**2, 1))
         
     def forward(self, x):
         b,c,h,w = x.shape
 
-        if self.k is None:
-            self.k = nn.Parameter(torch.randn(b, self.dim, 1, 1))
-            self.to(self.device)
-        if self.bias is None:
-            self.bias = nn.Parameter(torch.randn(b, self.num_heads, (self.dim//self.num_heads)**2, 1))
-            self.to(self.device)
+        # if self.k is None:
+        #     self.k = nn.Parameter(torch.randn(b, self.dim, 1, 1))
+        #     self.to(self.device)
+        # if self.bias is None:
+        #     self.bias = nn.Parameter(torch.randn(b, self.num_heads, (self.dim//self.num_heads)**2, 1))
+        #     self.to(self.device)
 
         # Reshape to feed into linear layer (b, c, h, w) -> (b, c*h*w) where c*h*w == dim
         qv = self.to_qv(x.squeeze())
@@ -88,10 +91,10 @@ class FeedForward(nn.Module):
         return self.net(x)
     
 class TransformerBlock(nn.Module):
-    def __init__(self, dim, num_heads, hidden_dim, bias, device):
+    def __init__(self, batch, dim, num_heads, hidden_dim, bias, device):
         super(TransformerBlock, self).__init__()
 
-        self.attn = Attention(dim, num_heads, bias, device)
+        self.attn = Attention(batch, dim, num_heads, bias, device)
         self.conv = nn.Conv2d(dim, dim, kernel_size=1, bias=bias)
         self.ffn = FeedForward(dim, hidden_dim, bias)
         self.bn = nn.BatchNorm2d(dim)
@@ -115,18 +118,18 @@ class Backbone(nn.Module):
         return self.backbone(x)
     
 class LVT(nn.Module):
-    def __init__(self, n_class, IL_type, dim, num_heads, hidden_dim, bias, device):
+    def __init__(self, n_class, batch, IL_type, dim, num_heads, hidden_dim, bias, device):
         super(LVT, self).__init__()
         self.n_class = n_class
         self.IL_type = IL_type
         self.dim = dim
         self.device = device
         self.backbone = Backbone().eval()
-        self.stage1 = nn.Sequential(*[TransformerBlock(dim=dim, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias, device=self.device) for i in range(2)])
+        self.stage1 = nn.Sequential(*[TransformerBlock(batch=batch, dim=dim, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias, device=self.device) for i in range(2)])
         self.shrink1 = nn.Conv2d(dim, dim*2, kernel_size=3, stride=2, padding=1, bias=bias)
-        self.stage2 = nn.Sequential(*[TransformerBlock(dim=dim*2, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias, device=self.device) for i in range(2)])
+        self.stage2 = nn.Sequential(*[TransformerBlock(batch=batch, dim=dim*2, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias, device=self.device) for i in range(2)])
         self.shrink2 = nn.Conv2d(dim*2, dim*4, kernel_size=3, stride=2, padding=1, bias=bias)
-        self.stage3 = nn.Sequential(*[TransformerBlock(dim=dim*4, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias, device=self.device) for i in range(2)])
+        self.stage3 = nn.Sequential(*[TransformerBlock(batch=batch, dim=dim*4, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias, device=self.device) for i in range(2)])
         # self.injection_classifier = Classifier(features_dim = dim*4, n_classes = n_class, init = 'kaiming', device=self.device)
         # self.accumulation_classifier = Classifier(features_dim = dim*4, n_classes = n_class, init = 'kaiming', device=self.device)
         self.inj_clf = torch.nn.Linear(dim*4, n_class, bias=False)
@@ -213,3 +216,5 @@ class LVT(nn.Module):
             self.acc_clf = torch.nn.Linear(self.dim*4, self.n_class)
             self.init_clf(self.acc_clf.weight)
             self.acc_clf.weight.data[:self.n_class-n_class] = weight
+        self.inj_clf.to(self.device)
+        self.acc_clf.to(self.device)
