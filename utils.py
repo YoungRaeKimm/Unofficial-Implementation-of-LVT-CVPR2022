@@ -2,6 +2,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 from continuum import ClassIncremental
 from continuum.datasets import CIFAR100, TinyImageNet200, ImageNet100
+import random
 import numpy as np
 import termcolor
 import os
@@ -25,6 +26,14 @@ def toBlue(content):
     return termcolor.colored(content,"blue",attrs=["bold"])
 
 def IncrementalDataLoader(dataset_name, data_path, train, n_split, task_id, batch_size, transform):
+    
+    '''random seed'''
+    seed = 1234
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+        
     if task_id >= n_split:
         print(f'task id {task_id} > n_split {n_split}')
         return False
