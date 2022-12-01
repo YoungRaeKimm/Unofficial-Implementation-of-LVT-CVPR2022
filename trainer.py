@@ -115,7 +115,7 @@ class Trainer():
     
     def train(self):
         cross_entropy = nn.CrossEntropyLoss()
-        kl_divergence = nn.KLDivLoss(log_target=True)
+        kl_divergence = nn.KLDivLoss(log_target=True, reduction='batchmean')
 
         self.model.train()
         # Train for each task
@@ -333,7 +333,7 @@ class Trainer():
         self.model.eval()
         correct, total = 0, 0
         with torch.no_grad():
-            for task_id in range(task):
+            for task_id in range(task+1):
                 data_loader = IncrementalDataLoader(self.dataset, self.data_path, False, self.split, task_id, self.batch_size, transform_test)
                 for x, y, t in data_loader:
                     x = x.to(device=self.device)
