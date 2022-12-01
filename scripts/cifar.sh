@@ -2,8 +2,9 @@
 
 timestamp=$(date +%s)
 
-                        # --resume False \
+                        # --resume True \
                         # --resume_task 1 \
+                        # --resume_time 20221201_1356 \
 py3clean ./
 CUDA_VISIBLE_DEVICES=0 python3 -B ../run.py \
                         --ILtype task \

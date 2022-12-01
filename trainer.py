@@ -89,6 +89,7 @@ class Trainer():
             cur_dir = os.path.dirname(os.path.realpath(__file__))
             model_name = f'model_{self.resume_time}_task_{self.resume_task-1}.pt'
             self.model = torch.load(os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", model_name)), map_location=self.device)
+            # import pdb; pdb.set_trace()
             self.prev_model = deepcopy(self.model).to(self.device)
             self.model.add_classes(self.increment)
         else:
@@ -132,7 +133,7 @@ class Trainer():
             if self.memory is None:
                 if self.resume:
                     cur_dir = os.path.dirname(os.path.realpath(__file__))
-                    memory_name = f'model_{self.resume_time}_task_{self.resume_task-1}.pt'
+                    memory_name = f'memory_{self.resume_time}_task_{self.resume_task-1}.pt'
                     with open(os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", memory_name)), 'rb') as f:
                         self.memory = pkl.load(f)
                 else:
@@ -147,6 +148,7 @@ class Trainer():
 
             # average gradient
             if task > 0:
+                self.prev_model.eval()
                 prev_avg_K_grad = None
                 prev_avg_bias_grad = None
                 length = 0
@@ -155,20 +157,20 @@ class Trainer():
                     x = x.to(device=self.device)
                     y = y.to(device=self.device)
 
-                    inj_logit = self.model.forward_inj(self.model.forward_backbone(x))
+                    inj_logit = self.prev_model.forward_inj(self.prev_model.forward_backbone(x))
                     # cross_entropy(inj_logit, y).backward()
                     if prev_avg_K_grad is not None:
                         # cross_entropy(y, int_out).backward()
-                        prev_avg_K_grad += self.model.get_K_grad()
-                        prev_avg_bias_grad += self.model.get_bias_grad()
+                        prev_avg_K_grad += self.prev_model.get_K_grad()
+                        prev_avg_bias_grad += self.prev_model.get_bias_grad()
                     else:
                         # cross_entropy(y, self.act(inj_logit / self.T)).backward()
-                        prev_avg_K_grad = self.model.get_K_grad()
-                        prev_avg_bias_grad = self.model.get_bias_grad()
+                        prev_avg_K_grad = self.prev_model.get_K_grad()
+                        prev_avg_bias_grad = self.prev_model.get_bias_grad()
                 prev_avg_K_grad /= length
                 prev_avg_bias_grad /= length
-                K_w_prev = self.model.get_K()
-                K_bias_prev = self.model.get_bias()
+                K_w_prev = self.prev_model.get_K()
+                K_bias_prev = self.prev_model.get_bias()
 
 
 
@@ -202,12 +204,9 @@ class Trainer():
                         
                         # Train Examplars from Memory
                         
-                        # for batch_idx, (x, y, t) in enumerate(memory_loader):
-                        # x,y,t = memory_loader.__getitem__(batch_idx%(self.memory_size//self.batch_size))
                         t = np.random.randint(0, task)
                         chunk_size  = (self.memory_size // (self.increment * task)) * self.increment
                         memory_idx = np.random.permutation(np.arange(chunk_size*t, chunk_size*(t+1)))[:self.batch_size]
-                        # memory_idx = np.random.permutation(self.memory_size)[:self.batch_size]
                         mx,my,mt = self.memory[memory_idx]
 
                         # if examplars are smaller than batch, repeat to match the size
@@ -225,8 +224,7 @@ class Trainer():
                         shift_my = torch.full_like(my, mt*self.increment)
                         my = my - shift_my
 
-                        # z = z_list[batch_idx].to(device=self.device)
-                        z = self.prev_model.forward_acc(self.model.forward_backbone(mx))
+                        z = self.prev_model.forward_acc(self.prev_model.forward_backbone(mx))
                         if self.ILtype=='task':
                             acc_logit = self.model.forward_acc(self.model.forward_backbone(mx), mt)
                         else:
@@ -257,6 +255,7 @@ class Trainer():
                     self.optimizer.zero_grad()
                     total_loss.backward()
                     # print(self.model.inj_clf.weight.grad)
+                    nn.utils.clip_grad_norm_(self.model.parameters(), 5.)
                     self.optimizer.step()
                     self.optimizer.zero_grad()
                     # print(f'batch : {batch_idx} | L : {total_loss} | L_It : {L_It} | L_d :{L_d} | acc : {acc_logit.max()}')
@@ -317,15 +316,17 @@ class Trainer():
                 self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, self.train_epoch/10, 0.1)
             
             self.save(self.model, self.memory, task)
+            self.eval(task)
     
     def eval(self, task):
         self.model.eval()
         data_loader = IncrementalDataLoader(self.dataset, self.data_path, False, self.split, task, self.batch_size, transform_test)
         correct, total = 0, 0
-        for x, y, _ in data_loader:
+        for x, y, t in data_loader:
             x = x.to(device=self.device)
+            y = y.to(device=self.device)
 
-            acc_logit = self.model.forward_acc(self.model.forward_backbone(x))
+            acc_logit = self.model.forward_acc(self.model.forward_backbone(x), task)
             _, predicted = torch.max(acc_logit, 1)
             correct += (predicted == y).sum().item()
             total += y.size(0)

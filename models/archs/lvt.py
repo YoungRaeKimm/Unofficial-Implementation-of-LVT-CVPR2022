@@ -152,7 +152,7 @@ class LVT(nn.Module):
             self.stage2[1].attn.k,
             self.stage3[0].attn.k,
             self.stage3[1].attn.k
-        ], dim=1)
+        ], dim=1).clone().detach()
     
     def get_bias(self):
         return torch.concat([
@@ -162,7 +162,7 @@ class LVT(nn.Module):
             self.stage2[1].attn.bias,
             self.stage3[0].attn.bias,
             self.stage3[1].attn.bias
-        ], dim=2)
+        ], dim=2).clone().detach()
         
     def get_K_grad(self):
         return torch.concat([
@@ -172,7 +172,7 @@ class LVT(nn.Module):
             self.stage2[1].attn.k.grad,
             self.stage3[0].attn.k.grad,
             self.stage3[1].attn.k.grad
-        ], dim=1)
+        ], dim=1).clone().detach()
     
     def get_bias_grad(self):
         return torch.concat([
@@ -182,7 +182,7 @@ class LVT(nn.Module):
             self.stage2[1].attn.bias.grad,
             self.stage3[0].attn.bias.grad,
             self.stage3[1].attn.bias.grad
-        ], dim=2)
+        ], dim=2).clone().detach()
             
     def forward_backbone(self, input):
         out = self.backbone(input)
