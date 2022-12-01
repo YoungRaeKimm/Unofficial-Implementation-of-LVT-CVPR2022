@@ -3,8 +3,17 @@ import torch.nn.functional as F
 from torch import nn 
 from torchvision import models
 import copy
+import random
+import numpy as np
 
 from einops import rearrange
+
+'''random seed'''
+seed = 1234
+random.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)
 
 '''
 Attention module.

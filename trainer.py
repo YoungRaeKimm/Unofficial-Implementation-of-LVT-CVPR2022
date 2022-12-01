@@ -7,6 +7,7 @@ import torchvision.transforms as transforms
 import pickle as pkl
 import random
 import numpy as np
+import logging
 
 from copy import deepcopy
 from models.lvt import *
@@ -49,6 +50,7 @@ def init_xavier(submodule):
         for sm in list(submodule.children()):
             init_xavier(sm)
 
+
 '''
 All training and testing functions are implemented in this class.
 '''
@@ -75,6 +77,7 @@ class Trainer():
         self.resume_task = config.resume_task
         self.resume_time = config.resume_time
         self.cur_classes = self.increment
+        self.model_time = time.strftime("%Y%m%d_%H%M%S")
         
         # hyper parameter
         self.num_head = config.num_head             # number of heads in attention 
@@ -86,7 +89,7 @@ class Trainer():
         self.rt = config.rt                         # coefficient of L_At
         self.T = 2.                                 # softmax temperature, which is used in distillation loss
         
-        
+
         '''
         If resume flag is True, then create the LVT and load the saved check point
         If it is False, then create the LVT and initialize the parameters.
@@ -112,12 +115,26 @@ class Trainer():
         self.optimizer = optim.SGD(self.model.parameters(), lr = self.lr)
         if self.scheduler:
             self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, self.train_epoch/10, 0.1)
+
+        '''
+        Set logger and log configs
+        '''
+        self.logger = logging.getLogger()
+        self.logger.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        log_name = f"{self.model_time}.log"
+        cur_dir = os.path.dirname(os.path.realpath(__file__))
+        file_handler = logging.FileHandler(os.path.join(cur_dir, self.log_dir, 'logs', log_name))
+        file_handler.setFormatter(formatter)
+        self.logger.addHandler(file_handler)
+        self.logger.info(f'alpha :{self.alpha} | beta : {self.beta} | gamma : {self.gamma} | rt : {self.rt} | num_head : {self.num_head} | hidden_dim : {self.hidden_dim}')
         
     '''
     Save the model and memory according to the task number.
     '''
     def save(self, model, memory, task):
-        model_time = time.strftime("%Y%m%d_%H%M")
+        # model_time = time.strftime("%Y%m%d_%H%M")
+        model_time = self.model_time
         model_name = f"model_{model_time}_task_{task}.pt"
         memory_name = f"memory_{model_time}_task_{task}.pt"
         print(f'Model saved as {model_name}')
@@ -146,6 +163,8 @@ class Trainer():
         '''
         start_task = self.resume_task if self.resume is True else 0
         for task in range(start_task, self.split):
+            if task>2:
+                break
             data_loader = IncrementalDataLoader(self.dataset, self.data_path, True, self.split, task, self.batch_size, transform)
             # print(data_loader)
             # x : (B, 3, 32, 32) | y : (B,) | t : (B,)
@@ -293,7 +312,7 @@ class Trainer():
                         total_loss = L_It + L_At
                     else:
                         L_r = cross_entropy(acc_logit, my)
-                        L_d = kl_divergence(self.act(z/self.T), self.act(acc_logit/self.T))
+                        L_d = kl_divergence(nn.functional.log_softmax((z/self.T), dim=1), self.act(acc_logit/self.T))
                         L_l = self.alpha*L_r + self.beta*L_d + self.rt*L_At
                         total_loss = L_l + L_It + self.gamma*L_a
                         
@@ -316,8 +335,10 @@ class Trainer():
                 Logging
                 '''
                 if task == 0:
+                    self.logger.info(f'epoch {epoch} | L_At :{L_At:.3f}| L_It : {L_It:.3f}| train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f}')
                     print(f'epoch {epoch} | L_At :{L_At:.3f}| L_It : {L_It:.3f}| train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f}')
                 else:
+                    self.logger.info(f'epoch {epoch} | L_At (acc):{L_At:.3f}| L_It (inj): {L_It:.3f}| L_a (att): {L_a:.3f}| L_l (accum): {L_l:.3f}| L_r (replay): {L_r:.3f}| L_d (dark) : {L_d:.3f}|  train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f}')
                     print(f'epoch {epoch} | L_At (acc):{L_At:.3f}| L_It (inj): {L_It:.3f}| L_a (att): {L_a:.3f}| L_l (accum): {L_l:.3f}| L_r (replay): {L_r:.3f}| L_d (dark) : {L_d:.3f}|  train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f}')
             
 
@@ -407,6 +428,8 @@ class Trainer():
                     correct += (predicted == y).sum().item()
                     total += y.size(0)
                 acc.append(100*correct/total)
+                self.logger.info(f'Test accuracy on task {task_id} : {100*correct/total}')
                 print(toGreen(f'Test accuracy on task {task_id} : {100*correct/total}'))
-        print(toGreen(f'Total test accuracy on task {task} : {100*sum(acc)/len(acc)}'))
+        self.logger.info(f'Total test accuracy on task {task} : {sum(acc)/len(acc)}')
+        print(toGreen(f'Total test accuracy on task {task} : {sum(acc)/len(acc)}'))
         self.model.train()
