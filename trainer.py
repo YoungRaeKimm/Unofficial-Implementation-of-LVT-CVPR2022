@@ -74,15 +74,14 @@ class Trainer():
         self.cur_classes = self.increment
         
         # hyper parameter
-        self.num_head = 2
-        self.hidden_dim = 512
-        self.bias = True
-        self.alpha = config.alpha
-        self.beta = config.beta
-        self.gamma = config.gamma
-        self.rt = 1.
-        self.T = 2. # softmax temperature
-        # TODO : Monotonically Decreasing Function gamma(t)
+        self.num_head = 2           # number of heads in attention 
+        self.hidden_dim = 512       # number of hidden dimension in attention
+        self.bias = True            # bias in Transformer or shrink module
+        self.alpha = config.alpha   # coefficient of L_r
+        self.beta = config.beta     # coefficient of L_d
+        self.gamma = config.gamma   # coefficient of L_a
+        self.rt = 1.                # coefficient of L_At
+        self.T = 2.                 # softmax temperature, which is used in distillation loss
         
         if config.resume:
             self.model = LVT(batch=self.batch_size, n_class=self.increment*self.resume_task, IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias, device=self.device).to(self.device)
@@ -148,7 +147,6 @@ class Trainer():
 
             # average gradient
             if task > 0:
-                self.prev_model.eval()
                 prev_avg_K_grad = None
                 prev_avg_bias_grad = None
                 length = 0
@@ -156,15 +154,17 @@ class Trainer():
                     length += 1
                     x = x.to(device=self.device)
                     y = y.to(device=self.device)
+                    shift_y = torch.full_like(y, task*self.increment)
+                    y = y - shift_y
 
                     inj_logit = self.prev_model.forward_inj(self.prev_model.forward_backbone(x))
                     # cross_entropy(inj_logit, y).backward()
                     if prev_avg_K_grad is not None:
-                        # cross_entropy(y, int_out).backward()
+                        cross_entropy(inj_logit, y).backward()
                         prev_avg_K_grad += self.prev_model.get_K_grad()
                         prev_avg_bias_grad += self.prev_model.get_bias_grad()
                     else:
-                        # cross_entropy(y, self.act(inj_logit / self.T)).backward()
+                        cross_entropy(inj_logit, y).backward()
                         prev_avg_K_grad = self.prev_model.get_K_grad()
                         prev_avg_bias_grad = self.prev_model.get_bias_grad()
                 prev_avg_K_grad /= length
@@ -188,8 +188,8 @@ class Trainer():
                     inj_logit = self.model.forward_inj(feature)
                     acc_logit = self.model.forward_acc(feature)
 
-                    if task == 0:
-                        acc_logit = torch.zeros_like(inj_logit).to(self.device)
+                    # if task == 0:
+                    #     acc_logit = torch.zeros_like(inj_logit).to(self.device)
 
                     # print(inj_logit)
                     L_It = cross_entropy(inj_logit, y)
@@ -235,8 +235,10 @@ class Trainer():
                         z = acc_logit
                         L_a = torch.zeros_like(L_It).to(self.device)
 
+                    '''If task is zero, then only the losses obtained by new data are needed.
+                    Or, accumulate the losses from memory, distilla'''
                     if task == 0:
-                        total_loss = L_It
+                        total_loss = L_It + L_At
                     else:
                         L_r = cross_entropy(acc_logit, my)
                         L_d = kl_divergence(self.act(z/self.T), self.act(acc_logit/self.T))
@@ -244,6 +246,7 @@ class Trainer():
                         total_loss = L_l + L_It + self.gamma*L_a
                         
                     # print(acc_logit.max())
+                    # To log the accuracy, calculate that
                     _, predicted = torch.max(inj_logit, 1)
                     # print(predicted)
                     # print(y)
@@ -252,6 +255,7 @@ class Trainer():
                     
                     # print(f'batch {batch_idx} | L_l : {L_l}| L_r : {L_r}| L_d : {L_d}| L_At :{L_At}| L_It : {L_It}| L_a : {L_a}| train_loss :{total_loss}|  accuracy : {100*correct/total}')
 
+                    # backward and optimize
                     self.optimizer.zero_grad()
                     total_loss.backward()
                     # print(self.model.inj_clf.weight.grad)
@@ -261,18 +265,17 @@ class Trainer():
                     # print(f'batch : {batch_idx} | L : {total_loss} | L_It : {L_It} | L_d :{L_d} | acc : {acc_logit.max()}')
                 
                 if task == 0:
-                    print(f'epoch {epoch} | L_At :{L_At:.3f}| L_It : {L_It:.3f}| L_a : {L_a:.3f}| train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f}')
+                    print(f'epoch {epoch} | L_At :{L_At:.3f}| L_It : {L_It:.3f}| train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f}')
                 else:
-                    print(f'epoch {epoch} | L_l : {L_l:.3f}| L_r : {L_r:.3f}| L_d : {L_d:.3f}| L_At :{L_At:.3f}| L_It : {L_It:.3f}| L_a : {L_a:.3f}| train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f}')
+                    print(f'epoch {epoch} | L_At (acc):{L_At:.3f}| L_It (inj): {L_It:.3f}| L_a (att): {L_a:.3f}| L_l (accum): {L_l:.3f}| L_r (replay): {L_r:.3f}| L_d (dark) : {L_d:.3f}|  train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f}')
             
-            # Save previous model
-            self.prev_model = copy.deepcopy(self.model)
 
-            # Update Memory
+            # Update memory
             conf_score_list = []
             x_list = []
             labels_list = []
-            # Calculate Confidence Score
+            
+            # Calculate confidence score
             for x, y, t in data_loader:
                 x_list.append(x)
                 labels_list.append(y)
@@ -290,7 +293,7 @@ class Trainer():
             labels = torch.cat(labels_list).flatten()
             xs = torch.cat(x_list).view(-1, *x.shape[1:])
 
-            # Reduce examplars to K
+            # To add new examplars, reduce examplars to K
             if task > 0:
                 self.memory.remove_examplars(K)
 
@@ -311,25 +314,37 @@ class Trainer():
                 self.model.add_classes(self.increment)
                 self.cur_classes += self.increment
             
+            # Save previous model
+            self.prev_model = copy.deepcopy(self.model)
+            self.prev_model.eval()
+            
+            # Reset optimizer
             self.optimizer = optim.SGD(self.model.parameters(), lr = self.lr)
             if self.scheduler:
                 self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, self.train_epoch/10, 0.1)
             
+            # Save model and memory
             self.save(self.model, self.memory, task)
+            
+            # test
             self.eval(task)
     
     def eval(self, task):
         self.model.eval()
-        data_loader = IncrementalDataLoader(self.dataset, self.data_path, False, self.split, task, self.batch_size, transform_test)
         correct, total = 0, 0
-        for x, y, t in data_loader:
-            x = x.to(device=self.device)
-            y = y.to(device=self.device)
+        with torch.no_grad():
+            for task_id in range(task):
+                data_loader = IncrementalDataLoader(self.dataset, self.data_path, False, self.split, task_id, self.batch_size, transform_test)
+                for x, y, t in data_loader:
+                    x = x.to(device=self.device)
+                    y = y.to(device=self.device)
+                    shift_y = torch.full_like(y, task_id*self.increment)
+                    y = y - shift_y
 
-            acc_logit = self.model.forward_acc(self.model.forward_backbone(x), task)
-            _, predicted = torch.max(acc_logit, 1)
-            correct += (predicted == y).sum().item()
-            total += y.size(0)
+                    acc_logit = self.model.forward_acc(self.model.forward_backbone(x), task_id)
+                    _, predicted = torch.max(acc_logit, 1)
+                    correct += (predicted == y).sum().item()
+                    total += y.size(0)
             
         print(toGreen(f'Test accuracy on task {task} : {100*correct/total}'))
         self.model.train()
