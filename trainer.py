@@ -91,7 +91,7 @@ class Trainer():
         If resume flag is True, then create the LVT and load the saved check point
         If it is False, then create the LVT and initialize the parameters.
         '''
-        if config.resume:
+        if config.resume or config.test:
             self.model = LVT(batch=self.batch_size, n_class=self.increment*self.resume_task, IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias, device=self.device).to(self.device)
             cur_dir = os.path.dirname(os.path.realpath(__file__))
             model_name = f'model_{self.resume_time}_task_{self.resume_task-1}.pt'

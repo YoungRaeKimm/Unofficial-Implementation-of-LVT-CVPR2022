@@ -7,6 +7,7 @@ if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser()
+    parser.add_argument('--test', action = 'store_true', default = False, help = 'test')
     parser.add_argument('--resume', action = 'store_true', default = False, help = 'resume or not')
     parser.add_argument('--resume_task', type = int, default = 1, help = 'resume task')
     parser.add_argument('--resume_time', type = str, default = '20221130_1356', help = 'resume time')
@@ -43,4 +44,7 @@ if __name__ == '__main__':
 
 
     trainer = Trainer(config)
-    trainer.train()
+    if args.test:
+        trainer.eval(config.split)
+    else:
+        trainer.train()
