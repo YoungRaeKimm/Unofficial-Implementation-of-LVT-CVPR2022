@@ -5,8 +5,14 @@ from torchvision import models
 import copy
 
 from einops import rearrange
-from models.archs.classifiers import Classifier
 
+'''
+Attention module.
+Unlike the existing vision transformers,
+there are learnable exteral key and bias.
+And they can interact with previous task
+by comparing the value of attention key and bias.
+'''
 class Attention(nn.Module):
     def __init__(self, batch, dim, num_heads, bias, device):
         super(Attention, self).__init__()
@@ -15,36 +21,19 @@ class Attention(nn.Module):
         self.dim = dim
         self.device = device
 
-        # self.kv = nn.Conv2d(dim, dim*2, kernel_size=1, bias=bias)
-        # self.kv_dwconv = nn.Conv2d(dim*2, dim*2, kernel_size=3, stride=1, padding=1, groups=dim*2, bias=bias)
         self.temperature = nn.Parameter(torch.ones(num_heads, 1, 1))
         self.to_qv = nn.Linear(dim, dim * 2, bias = False)
         self.project_out = nn.Conv2d(dim, dim, kernel_size=1, bias=bias)
         self.bn = nn.BatchNorm2d(self.num_heads)
         
-        # self.q = nn.Conv2d(dim, dim, kernel_size=1, bias=bias)
-        # self.q_dwconv = nn.Conv2d(dim, dim, kernel_size=3, stride=1, padding=1, groups=dim, bias=bias)
-
-        # Learnable External Key
-        # self.k = None
-        # self.bias = None
-        
+        # Learnable External Key        
         self.k = nn.Parameter(torch.randn(batch, self.dim, 1, 1))
         self.bias = nn.Parameter(torch.randn(batch, self.num_heads, (self.dim//self.num_heads)**2, 1))
         
     def forward(self, x):
         b,c,h,w = x.shape
 
-        # if self.k is None:
-        #     self.k = nn.Parameter(torch.randn(b, self.dim, 1, 1))
-        #     self.to(self.device)
-        # if self.bias is None:
-        #     self.bias = nn.Parameter(torch.randn(b, self.num_heads, (self.dim//self.num_heads)**2, 1))
-        #     self.to(self.device)
-
-        # Reshape to feed into linear layer (b, c, h, w) -> (b, c*h*w) where c*h*w == dim
         qv = self.to_qv(x.squeeze())
-        # qv = self.to_qv(x.reshape(b, -1))
         q,v = qv.chunk(2, dim=1)
 
         # Unsqueeze to 4 dimension
@@ -55,17 +44,8 @@ class Attention(nn.Module):
         k = rearrange(self.k, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
         v = rearrange(v, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
         bias = self.bias.view(b, self.num_heads, self.dim//self.num_heads, self.dim//self.num_heads)
-        # bias = rearrange(self.bias, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
-
-        # q = torch.nn.functional.normalize(q, dim=-1)
-        # k = torch.nn.functional.normalize(k, dim=-1)
-
+        
         v = self.bn(v)
-
-        # print("q shape")
-        # print(q.shape)
-        # print("k shape")
-        # print(k.shape)
         
         attn = q @ k.transpose(-2, -1)
         attn = attn + bias
@@ -76,7 +56,10 @@ class Attention(nn.Module):
 
         out = self.project_out(out)
         return out
-    
+
+'''
+As written in LVT paper, the GELU activation function 
+'''
 class FeedForward(nn.Module):
     def __init__(self, dim, hidden_dim, dropout = 0.):
         super().__init__()
@@ -101,10 +84,8 @@ class TransformerBlock(nn.Module):
 
     def forward(self, input):
         out = self.bn(self.conv(self.attn(input)))
-        # out = F.batch_norm(self.conv(self.attn(input)),  dim=-1)
         out += input
         out = self.ffn(out.squeeze()).unsqueeze(2).unsqueeze(2) + out
-        # out += self.ffn(out) + out
 
         return out
     
@@ -193,8 +174,6 @@ class LVT(nn.Module):
         return out
         
     def forward_inj(self, input, task_id=None):
-        # return self.injection_classifier(input)
-        # print(self.inj_clf(input.squeeze()).size())
         return self.inj_clf(input.squeeze())
         
     def forward_acc(self, input, task_id=None):
@@ -204,12 +183,10 @@ class LVT(nn.Module):
             return self.prev_acc_clf[task_id](input.squeeze())
         
     def add_classes(self, n_class):
-        # self.injection_classifier.add_classes(n_class)
         if self.IL_type == 'class':
             self.n_class += n_class
         self.inj_clf = torch.nn.Linear(self.dim*4, self.n_class, bias=False)
         self.init_clf(self.inj_clf)
-        # self.injection_classifier = Classifier(features_dim = self.dim*4, n_classes = n_class, init = 'kaiming', device=self.device)
         if self.IL_type == 'task':
             self.prev_acc_clf.append(copy.deepcopy(self.acc_clf))
         else:

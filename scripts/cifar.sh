@@ -14,5 +14,8 @@ CUDA_VISIBLE_DEVICES=0 python3 -B ../run.py \
                         --beta 0.5 \
                         --gamma 0.5 \
                         --memory_size 500 \
+                        --rt 1.0 \
+                        --num_head 2 \
+                        --hidden_dim 512 \
                         # -everytest False \
                         # > ../ckpt/logs/$(date -d "today" +"%Y%m%d_%H%M").txt
