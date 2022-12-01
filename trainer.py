@@ -129,6 +129,8 @@ class Trainer():
         file_handler.setFormatter(formatter)
         self.logger.addHandler(file_handler)
         self.logger.info(f'alpha :{self.alpha} | beta : {self.beta} | gamma : {self.gamma} | rt : {self.rt} | num_head : {self.num_head} | hidden_dim : {self.hidden_dim}')
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
         
     '''
     Save the model and memory according to the task number.
