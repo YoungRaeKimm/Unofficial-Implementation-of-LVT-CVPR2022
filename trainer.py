@@ -11,13 +11,6 @@ import numpy as np
 from copy import deepcopy
 from models.lvt import *
 from utils import IncrementalDataLoader, confidence_score, MemoryDataset, toRed, toBlue, toGreen
-
-'''random seed'''
-seed = 1234
-random.seed(seed)
-np.random.seed(seed)
-torch.manual_seed(seed)
-torch.cuda.manual_seed_all(seed)
     
 '''dataset transforms'''
 transform = [
@@ -112,6 +105,14 @@ class Trainer():
         self.optimizer = optim.SGD(self.model.parameters(), lr = self.lr)
         if self.scheduler:
             self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, self.train_epoch/10, 0.1)
+            
+        
+        '''random seed'''
+        seed = 1234
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
         
     '''
     Save the model and memory according to the task number.
@@ -293,7 +294,7 @@ class Trainer():
                         total_loss = L_It + L_At
                     else:
                         L_r = cross_entropy(acc_logit, my)
-                        L_d = kl_divergence(self.act(z/self.T), self.act(acc_logit/self.T))
+                        L_d = kl_divergence(nn.functional.log_softmax((z/self.T), dim=1), self.act(acc_logit/self.T))
                         L_l = self.alpha*L_r + self.beta*L_d + self.rt*L_At
                         total_loss = L_l + L_It + self.gamma*L_a
                         
