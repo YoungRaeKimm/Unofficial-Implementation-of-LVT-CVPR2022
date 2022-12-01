@@ -25,6 +25,8 @@ def IncrementalDataLoader(dataset_name, data_path, train, n_split, task_id, batc
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
         
     if task_id >= n_split:
         print(f'task id {task_id} > n_split {n_split}')
