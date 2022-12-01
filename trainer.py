@@ -12,6 +12,16 @@ from copy import deepcopy
 from models.lvt import *
 from utils import IncrementalDataLoader, confidence_score, MemoryDataset, toRed, toBlue, toGreen
     
+
+'''random seed'''
+seed = 1234
+random.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+        
 '''dataset transforms'''
 transform = [
         transforms.RandomCrop(32, padding=4),
