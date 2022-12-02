@@ -115,7 +115,6 @@ class Trainer():
         self.optimizer = optim.SGD(self.model.parameters(), lr = self.lr)
         if self.scheduler:
             self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, self.train_epoch/10, 0.1)
-            
         
         '''random seed'''
         seed = 1234
@@ -271,27 +270,26 @@ class Trainer():
                         '''                        
                         t = np.random.randint(0, task)
                         chunk_size  = (self.memory_size // (self.increment * task)) * self.increment
-                        memory_idx = np.random.permutation(np.arange(chunk_size*t, chunk_size*(t+1)))[:self.batch_size]
+                        memory_idx = np.random.permutation(self.batch_size)[:self.batch_size]
                         mx,my,mt = self.memory[memory_idx]
-
-                        # if examplars are smaller than batch, repeat to match the size
-                        if chunk_size < self.batch_size:
-                            mx = torch.concat([mx, mx])[:self.batch_size]
-                            my = torch.concat([my, my])[:self.batch_size]
-                            mt = torch.concat([mt, mt])[:self.batch_size]
 
                         mx = mx.to(self.device)
                         my = my.type(torch.LongTensor).to(self.device)
-                        assert(mt.sum()==t*mt.size(0))
-                        mt = t
-
-                        # Shift label to first task
-                        shift_my = torch.full_like(my, mt*self.increment)
-                        my = my - shift_my
+                        my = my % self.increment
 
                         z = self.prev_model.forward_acc(self.prev_model.forward_backbone(mx))
                         if self.ILtype=='task':
-                            acc_logit = self.model.forward_acc(self.model.forward_backbone(mx), mt)
+                            features = self.model.forward_backbone(mx)
+                            L_r = None
+                            for i in range(self.batch_size):
+                                if L_r is None:
+                                    acc_logit = self.model.forward_acc(features[i,...], int(mt[i].item()))
+                                    L_r = cross_entropy(acc_logit, my[i,...])
+                                    acc_logit = acc_logit.unsqueeze(0)
+                                else:
+                                    acc_log = self.model.forward_acc(features[i,...], int(mt[i].item()))
+                                    L_r += cross_entropy(acc_log, my[i,...])
+                                    acc_logit = torch.concat([acc_logit, acc_log.unsqueeze(0)], dim=0)
                         else:
                             acc_logit = self.model.forward_acc(self.model.forward_backbone(mx))
                         
@@ -305,7 +303,7 @@ class Trainer():
                     if task == 0:
                         total_loss = L_It + L_At
                     else:
-                        L_r = cross_entropy(acc_logit, my)
+                        # L_r = cross_entropy(acc_logit, my)
                         L_d = kl_divergence(nn.functional.log_softmax((z/self.T), dim=1), self.act(acc_logit/self.T))
                         L_l = self.alpha*L_r + self.beta*L_d + self.rt*L_At
                         total_loss = L_l + L_It + self.gamma*L_a
@@ -321,7 +319,10 @@ class Trainer():
                     '''                    
                     self.optimizer.zero_grad()
                     total_loss.backward()
-                    nn.utils.clip_grad_norm_(self.model.parameters(), 5.)
+                    # if task == 0:
+                    nn.utils.clip_grad_norm_(self.model.parameters(), 3.)
+                    # else:
+                    #     nn.utils.clip_grad_norm_(self.model.parameters(), 10.)
                     self.optimizer.step()
                     self.optimizer.zero_grad()
                     # print(f'batch : {batch_idx} | L : {total_loss} | L_It : {L_It} | L_d :{L_d} | acc : {acc_logit.max()}')
@@ -421,5 +422,5 @@ class Trainer():
                     total += y.size(0)
                 acc.append(100*correct/total)
                 print(toGreen(f'Test accuracy on task {task_id} : {100*correct/total}'))
-        print(toGreen(f'Total test accuracy on task {task} : {100*sum(acc)/len(acc)}'))
+        print(toGreen(f'Total test accuracy on task {task} : {sum(acc)/len(acc)}'))
         self.model.train()
