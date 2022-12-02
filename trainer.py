@@ -28,7 +28,7 @@ transform = [
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
 ]
 
 transform_test = [
@@ -304,7 +304,7 @@ class Trainer():
                             for i in range(self.batch_size):
                                 if L_r is None:
                                     acc_logit = self.model.forward_acc(features[i,...], int(mt[i].item()))
-                                    z = self.prev_model.forward_acc(features_prev[i,..], int(mt[i].item())).unsqueeze(0)
+                                    z = self.prev_model.forward_acc(features_prev[i,...], int(mt[i].item())).unsqueeze(0)
                                     L_r = cross_entropy(acc_logit, my[i,...])
                                     acc_logit = acc_logit.unsqueeze(0)
                                 else:
