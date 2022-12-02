@@ -308,9 +308,22 @@ class Trainer():
                         shift_my = torch.full_like(my, mt*self.increment)
                         my = my - shift_my
 
-                        z = self.prev_model.forward_acc(self.prev_model.forward_backbone(mx))
                         if self.ILtype=='task':
-                            acc_logit = self.model.forward_acc(self.model.forward_backbone(mx), mt)
+                            features = self.model.forward_backbone(mx)
+                            features_prev = self.prev_model.forward_backbone(mx)
+                            L_r = None
+                            for i in range(self.batch_size):
+                                if L_r is None:
+                                    acc_logit = self.model.forward_acc(features[i,...], int(mt[i].item()))
+                                    z = self.prev_model.forward_acc(features_prev[i,..], int(mt[i].item())).unsqueeze(0)
+                                    L_r = cross_entropy(acc_logit, my[i,...])
+                                    acc_logit = acc_logit.unsqueeze(0)
+                                else:
+                                    acc_log = self.model.forward_acc(features[i,...], int(mt[i].item()))
+                                    z_ = self.prev_model.forward_acc(features_prev[i,...], int(mt[i].item()))
+                                    z = torch.concat([z, z_.unsqueeze(0)], dim=0)
+                                    L_r += cross_entropy(acc_log, my[i,...])
+                                    acc_logit = torch.concat([acc_logit, acc_log.unsqueeze(0)], dim=0)
                         else:
                             acc_logit = self.model.forward_acc(self.model.forward_backbone(mx))
                         
