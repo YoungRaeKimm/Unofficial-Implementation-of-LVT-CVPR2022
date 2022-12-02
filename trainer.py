@@ -327,8 +327,8 @@ class Trainer():
                         total_loss = L_It + L_At
                     else:
                         # L_r = cross_entropy(acc_logit, my)
-                        L_d = self.beta*kl_divergence(nn.functional.log_softmax((z/self.T), dim=1), self.act(acc_logit/self.T))
-                        L_l = self.alpha*L_r + L_d + self.rt*L_At
+                        L_d = kl_divergence(nn.functional.log_softmax((z/self.T), dim=1), self.act(acc_logit/self.T))
+                        L_l = self.alpha*L_r + self.beta*L_d + self.rt*L_At
                         total_loss = L_l + L_It + self.gamma*L_a
                         
                     # To log the accuracy, calculate that
