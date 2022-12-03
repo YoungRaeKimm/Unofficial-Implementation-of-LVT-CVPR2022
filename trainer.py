@@ -33,7 +33,7 @@ transform = [
 
 transform_test = [
         transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
 ]
 
 '''Recursively initialize the parameters'''
@@ -174,8 +174,8 @@ class Trainer():
         '''
         start_task = self.resume_task if self.resume is True else 0
         for task in range(start_task, self.split):
-            if task > 2:
-                break
+            # if task > 2:
+            #     break
             data_loader = IncrementalDataLoader(self.dataset, self.data_path, True, self.split, task, self.batch_size, transform)
             # print(data_loader)
             # x : (B, 3, 32, 32) | y : (B,) | t : (B,)

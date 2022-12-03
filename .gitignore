@@ -4,3 +4,5 @@ note.py
 data
 ckpt/
 scripts/cifar2.sh
+scripts/cifar3.sh
+scripts/cifar4.sh
