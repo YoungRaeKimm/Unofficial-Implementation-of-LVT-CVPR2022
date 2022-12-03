@@ -243,6 +243,7 @@ class Trainer():
             for epoch in range(self.train_epoch):
                 # Train current Task
                 correct, total = 0, 0
+                correct_m, total_m = 0, 0
                 for batch_idx, (x, y, t) in enumerate(data_loader):
                     x = x.to(device=self.device)
                     y = y.to(device=self.device)
@@ -286,8 +287,6 @@ class Trainer():
                         '''
                         Calculate the logit value from accumulation classifier on the data in memory buffer.
                         '''                        
-                        t = np.random.randint(0, task)
-                        chunk_size  = (self.memory_size // (self.increment * task)) * self.increment
                         memory_idx = np.random.permutation(self.batch_size)[:self.batch_size]
                         mx,my,mt = self.memory[memory_idx]
 
@@ -295,12 +294,12 @@ class Trainer():
                         my = my.type(torch.LongTensor).to(self.device)
                         my = my % self.increment
 
-                        # z = self.prev_model.forward_acc(self.prev_model.forward_backbone(mx))
-
                         if self.ILtype=='task':
                             features = self.model.forward_backbone(mx)
                             features_prev = self.prev_model.forward_backbone(mx)
                             L_r = None
+                            
+                            
                             for i in range(self.batch_size):
                                 if L_r is None:
                                     acc_logit = self.model.forward_acc(features[i,...], int(mt[i].item()))
@@ -313,6 +312,11 @@ class Trainer():
                                     z = torch.concat([z, z_.unsqueeze(0)], dim=0)
                                     L_r += cross_entropy(acc_log, my[i,...])
                                     acc_logit = torch.concat([acc_logit, acc_log.unsqueeze(0)], dim=0)
+                                    
+                            _, predicted_m = torch.max(acc_logit, 1)
+                            correct_m += (predicted_m == my).sum().item()
+                            total_m += my.size(0)
+                            
                         else:
                             acc_logit = self.model.forward_acc(self.model.forward_backbone(mx))
                         
@@ -353,8 +357,8 @@ class Trainer():
                 Logging
                 '''
                 if task == 0:
-                    self.logger.info(f'epoch {epoch} | L_At :{L_At:.3f}| L_It : {L_It:.3f}| train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f}')
-                    print(f'epoch {epoch} | L_At :{L_At:.3f}| L_It : {L_It:.3f}| train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f}')
+                    self.logger.info(f'epoch {epoch} | L_At :{L_At:.3f}| L_It : {L_It:.3f}| train_loss :{total_loss:.3f} | accuracy : {100*correct/total:.3f} | m_accuracy : {100*correct_m/total_m:.3f}')
+                    print(f'epoch {epoch} | L_At :{L_At:.3f}| L_It : {L_It:.3f}| train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f} | m_accuracy : {100*correct_m/total_m:.3f}')
                 else:
                     self.logger.info(f'epoch {epoch} | L_At (acc):{L_At:.3f}| L_It (inj): {L_It:.3f}| L_a (att): {L_a:.3f}| L_l (accum): {L_l:.3f}| L_r (replay): {L_r:.3f}| L_d (dark) : {L_d:.3f}|  train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f}')
                     print(f'epoch {epoch} | L_At (acc):{L_At:.3f}| L_It (inj): {L_It:.3f}| L_a (att): {L_a:.3f}| L_l (accum): {L_l:.3f}| L_r (replay): {L_r:.3f}| L_d (dark) : {L_d:.3f}|  train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f}')
