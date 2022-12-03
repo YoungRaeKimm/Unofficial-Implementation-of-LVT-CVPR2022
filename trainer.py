@@ -89,7 +89,7 @@ class Trainer():
         self.beta = config.beta                     # coefficient of L_d
         self.gamma = config.gamma                   # coefficient of L_a
         self.rt = config.rt                         # coefficient of L_At
-        self.T = 2.                                 # softmax temperature, which is used in distillation loss
+        self.T = 10.                                 # softmax temperature, which is used in distillation loss
         
         
         '''
@@ -281,8 +281,8 @@ class Trainer():
                         when the previous gradient value exists.
                         This loss can be regarded as the interation with previous task.
                         '''
-                        L_a = (torch.abs(torch.tensordot(prev_avg_K_grad, (self.model.get_K() - K_w_prev)))).sum() + \
-                                (torch.abs(torch.tensordot(prev_avg_bias_grad, (self.model.get_bias() - K_bias_prev), dims=([2, 1], [2, 1])))).sum()
+                        L_a = (torch.abs(torch.tensordot(prev_avg_K_grad, (self.model.get_K() - K_w_prev)))).mean() + \
+                                (torch.abs(torch.tensordot(prev_avg_bias_grad, (self.model.get_bias() - K_bias_prev), dims=([2, 1], [2, 1])))).mean()
                         
                         '''
                         Calculate the logit value from accumulation classifier on the data in memory buffer.
