@@ -209,7 +209,7 @@ class Trainer():
             represents the importance the last task. (equation (2))
             The average value of gradient is calculated in here.
             '''
-            if task > 0:
+            if task < 0:
                 prev_avg_K_grad = None
                 prev_avg_bias_grad = None
                 length = 0
@@ -273,7 +273,7 @@ class Trainer():
                     The memory is used after first task.
                     At the first task, there are nothing in memory.
                     '''
-                    if task > 0:
+                    if task < 0:
                         # print(f'prev_K_grad : {prev_avg_K_grad.shape}, K : {self.model.get_K().shape}')
                         # print(f'prev_B_grad : {prev_avg_bias_grad.shape}, B : {self.model.get_bias().shape}')
                         '''
@@ -327,7 +327,7 @@ class Trainer():
 
                     '''If first task, then only the losses obtained by new data are backpropagated.
                     Or, accumulate the losses from memory such as L_r, L_d into L_l'''
-                    if task == 0:
+                    if task >= 0:
                         total_loss = L_It + L_At
                     else:
                         # L_r = cross_entropy(acc_logit, my)
@@ -356,7 +356,7 @@ class Trainer():
                 '''
                 Logging
                 '''
-                if task == 0:
+                if task >= 0:
                     self.logger.info(f'epoch {epoch} | L_At :{L_At:.3f}| L_It : {L_It:.3f}| train_loss :{total_loss:.3f} | accuracy : {100*correct/total:.3f}')
                     print(f'epoch {epoch} | L_At :{L_At:.3f}| L_It : {L_It:.3f}| train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f}')
                 else:
@@ -388,7 +388,7 @@ class Trainer():
             xs = torch.cat(x_list).view(-1, *x.shape[1:])
 
             '''To add new examplars, reduce examplars to K'''
-            if task > 0:
+            if task < 0:
                 self.memory.remove_examplars(K)
 
             '''Add new examplars'''
