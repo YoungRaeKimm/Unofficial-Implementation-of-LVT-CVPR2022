@@ -217,8 +217,7 @@ class Trainer():
                     length += 1
                     x = x.to(device=self.device)
                     y = y.to(device=self.device)
-                    shift_y = torch.full_like(y, task*self.increment)
-                    y = y - shift_y
+                    y = y % self.increment
 
                     inj_logit = self.prev_model.forward_inj(self.prev_model.forward_backbone(x))
                     # cross_entropy(inj_logit, y).backward()
@@ -247,8 +246,7 @@ class Trainer():
                 for batch_idx, (x, y, t) in enumerate(data_loader):
                     x = x.to(device=self.device)
                     y = y.to(device=self.device)
-                    shift_y = torch.full_like(y, task*self.increment)
-                    y = y - shift_y
+                    y = y % self.increment
 
                     feature = self.model.forward_backbone(x)
                     inj_logit = self.model.forward_inj(feature)
@@ -281,8 +279,8 @@ class Trainer():
                         when the previous gradient value exists.
                         This loss can be regarded as the interation with previous task.
                         '''
-                        L_a = (torch.abs(torch.tensordot(prev_avg_K_grad, (self.model.get_K() - K_w_prev)))).mean() + \
-                                (torch.abs(torch.tensordot(prev_avg_bias_grad, (self.model.get_bias() - K_bias_prev), dims=([2, 1], [2, 1])))).mean()
+                        L_a = (torch.abs(torch.tensordot(prev_avg_K_grad, (self.model.get_K() - K_w_prev)))).sum() / 7168. + \
+                                (torch.abs(torch.tensordot(prev_avg_bias_grad, (self.model.get_bias() - K_bias_prev), dims=([2, 1], [2, 1])))).sum() / 196608.
                         
                         '''
                         Calculate the logit value from accumulation classifier on the data in memory buffer.
@@ -360,8 +358,8 @@ class Trainer():
                     self.logger.info(f'epoch {epoch} | L_At :{L_At:.3f}| L_It : {L_It:.3f}| train_loss :{total_loss:.3f} | accuracy : {100*correct/total:.3f}')
                     print(f'epoch {epoch} | L_At :{L_At:.3f}| L_It : {L_It:.3f}| train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f}')
                 else:
-                    self.logger.info(f'epoch {epoch} | L_At (acc):{L_At:.3f}| L_It (inj): {L_It:.3f}| L_a (att): {L_a:.3f}| L_l (accum): {L_l:.3f}| L_r (replay): {L_r:.3f}| L_d (dark) : {L_d:.3f}|  train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f} | m_accuracy : {100*correct_m/total_m:.3f}')
-                    print(f'epoch {epoch} | L_At (acc):{L_At:.3f}| L_It (inj): {L_It:.3f}| L_a (att): {L_a:.3f}| L_l (accum): {L_l:.3f}| L_r (replay): {L_r:.3f}| L_d (dark) : {L_d:.3f}|  train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f} | m_accuracy : {100*correct_m/total_m:.3f}')
+                    self.logger.info(f'epoch {epoch} | L_At (acc):{L_At:.3f}| L_It (inj): {L_It:.3f}| L_a (att): {L_a}| L_l (accum): {L_l:.3f}| L_r (replay): {L_r:.3f}| L_d (dark) : {L_d:.3f}|  train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f} | m_accuracy : {100*correct_m/total_m:.3f}')
+                    print(f'epoch {epoch} | L_At (acc):{L_At:.3f}| L_It (inj): {L_It:.3f}| L_a (att): {L_a}| L_l (accum): {L_l:.3f}| L_r (replay): {L_r:.3f}| L_d (dark) : {L_d:.3f}|  train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f} | m_accuracy : {100*correct_m/total_m:.3f}')
             
 
             '''Update memory'''
@@ -375,8 +373,7 @@ class Trainer():
                 labels_list.append(y)
                 x = x.to(device=self.device)
                 y = y.to(device=self.device)
-                shift_y = torch.full_like(y, task*self.increment)
-                y = y - shift_y
+                y = y % self.increment
                 feature = self.model.forward_backbone(x)
                 inj_logit = self.model.forward_inj(feature)
 
@@ -442,8 +439,7 @@ class Trainer():
                 for x, y, t in data_loader:
                     x = x.to(device=self.device)
                     y = y.to(device=self.device)
-                    shift_y = torch.full_like(y, task_id*self.increment)
-                    y = y - shift_y
+                    y = y % self.increment
 
                     acc_logit = self.model.forward_acc(self.model.forward_backbone(x), task_id)
                     _, predicted = torch.max(acc_logit, 1)
