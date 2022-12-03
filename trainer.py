@@ -89,7 +89,7 @@ class Trainer():
         self.beta = config.beta                     # coefficient of L_d
         self.gamma = config.gamma                   # coefficient of L_a
         self.rt = config.rt                         # coefficient of L_At
-        self.T = 2.                                 # softmax temperature, which is used in distillation loss
+        self.T = 10.                                 # softmax temperature, which is used in distillation loss
         
         
         '''
@@ -133,7 +133,7 @@ class Trainer():
         self.logger = logging.getLogger()
         self.logger.setLevel(logging.INFO)
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        log_name = f"{self.model_time}.log"
+        log_name = f"{self.model_time}_no_memory.log"
         cur_dir = os.path.dirname(os.path.realpath(__file__))
         file_handler = logging.FileHandler(os.path.join(cur_dir, self.log_dir, 'logs', log_name))
         file_handler.setFormatter(formatter)
@@ -143,17 +143,17 @@ class Trainer():
     '''
     Save the model and memory according to the task number.
     '''
-    def save(self, model, memory, task):
+    def save(self, model, task):
         model_time = time.strftime("%Y%m%d_%H%M")
         model_name = f"model_{model_time}_task_{task}.pt"
-        memory_name = f"memory_{model_time}_task_{task}.pt"
+        # memory_name = f"memory_{model_time}_task_{task}.pt"
         print(f'Model saved as {model_name}')
-        print(f'Memory saved as {memory_name}')
+        # print(f'Memory saved as {memory_name}')
         cur_dir = os.path.dirname(os.path.realpath(__file__))
         print(f'Path : {os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", model_name))}')
         torch.save(model, os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", model_name)))
-        with open(os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", memory_name)), 'wb') as f:
-            pkl.dump(memory, f)
+        # with open(os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", memory_name)), 'wb') as f:
+        #     pkl.dump(memory, f)
 
    
     '''
@@ -281,8 +281,8 @@ class Trainer():
                         when the previous gradient value exists.
                         This loss can be regarded as the interation with previous task.
                         '''
-                        L_a = (torch.abs(torch.tensordot(prev_avg_K_grad, (self.model.get_K() - K_w_prev)))).sum() + \
-                                (torch.abs(torch.tensordot(prev_avg_bias_grad, (self.model.get_bias() - K_bias_prev), dims=([2, 1], [2, 1])))).sum()
+                        L_a = (torch.abs(torch.tensordot(prev_avg_K_grad, (self.model.get_K() - K_w_prev)))).sum() / 7168.  + \
+                                (torch.abs(torch.tensordot(prev_avg_bias_grad, (self.model.get_bias() - K_bias_prev), dims=([2, 1], [2, 1])))).sum() / 196608.
                         
                         '''
                         Calculate the logit value from accumulation classifier on the data in memory buffer.
@@ -391,13 +391,13 @@ class Trainer():
             if task < 0:
                 self.memory.remove_examplars(K)
 
-            '''Add new examplars'''
-            conf_score_sorted = conf_score.argsort()[::-1]
-            for label in range(self.increment*task, self.increment*(task+1)):
-                new_x = xs[conf_score_sorted[labels==label][:K]]
-                new_y = labels[conf_score_sorted[labels==label][:K]]
-                new_t = torch.full((K,), task).type(torch.LongTensor)
-                self.memory.update_memory(label, new_x, new_y, new_t)
+                '''Add new examplars'''
+                conf_score_sorted = conf_score.argsort()[::-1]
+                for label in range(self.increment*task, self.increment*(task+1)):
+                    new_x = xs[conf_score_sorted[labels==label][:K]]
+                    new_y = labels[conf_score_sorted[labels==label][:K]]
+                    new_t = torch.full((K,), task).type(torch.LongTensor)
+                    self.memory.update_memory(label, new_x, new_y, new_t)
                 
             '''updatae r(t)'''
             self.rt *= 0.9
@@ -424,7 +424,7 @@ class Trainer():
                 self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, self.train_epoch/10, 0.1)
             
             '''Save model and memory'''
-            self.save(self.model, self.memory, task)
+            self.save(self.model, task)
             
             '''test'''
             self.eval(task)
