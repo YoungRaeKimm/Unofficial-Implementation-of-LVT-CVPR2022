@@ -213,7 +213,8 @@ class Trainer():
                 prev_avg_K_grad = None
                 prev_avg_bias_grad = None
                 length = 0
-                for x, y, _ in data_loader:
+                prev_data_loader = IncrementalDataLoader(self.dataset, self.data_path, True, self.split, task-1, self.batch_size, transform)
+                for x, y, _ in prev_data_loader:
                     length += 1
                     x = x.to(device=self.device)
                     y = y.to(device=self.device)
@@ -240,7 +241,11 @@ class Trainer():
             Train one task during configured epoch.
             '''
             # train
-            for epoch in range(self.train_epoch):
+            if task > 0:
+                train_epoch = 70
+            else:
+                train_epoch = self.train_epoch
+            for epoch in range(train_epoch):
                 # Train current Task
                 correct, total = 0, 0
                 correct_m, total_m = 0, 0
@@ -281,8 +286,8 @@ class Trainer():
                         when the previous gradient value exists.
                         This loss can be regarded as the interation with previous task.
                         '''
-                        L_a = (torch.abs(torch.tensordot(prev_avg_K_grad, (self.model.get_K() - K_w_prev)))).sum() / 7168. + \
-                                (torch.abs(torch.tensordot(prev_avg_bias_grad, (self.model.get_bias() - K_bias_prev), dims=([2, 1], [2, 1])))).sum() / 196608.
+                        L_a = (torch.abs(torch.tensordot(prev_avg_K_grad, (self.model.get_K() - K_w_prev)))).sum() / 32. + \
+                                (torch.abs(torch.tensordot(prev_avg_bias_grad, (self.model.get_bias() - K_bias_prev), dims=([2, 1], [2, 1])))).sum() / 32.
                         
                         '''
                         Calculate the logit value from accumulation classifier on the data in memory buffer.
@@ -298,7 +303,6 @@ class Trainer():
                             features = self.model.forward_backbone(mx)
                             features_prev = self.prev_model.forward_backbone(mx)
                             L_r = None
-                            
                             
                             for i in range(self.batch_size):
                                 if L_r is None:
@@ -328,18 +332,16 @@ class Trainer():
                             correct_m += (predicted_m == my).sum().item()
                             total_m += my.size(0)
                         
-                        # print(f'For dim: acclogit size {acc_logit.size()}, z size {z.size()}')
-                    else:
-                        L_a = torch.zeros_like(L_It).to(self.device)
-                        z = acc_logit
-
                     '''If first task, then only the losses obtained by new data are backpropagated.
                     Or, accumulate the losses from memory such as L_r, L_d into L_l'''
                     if task == 0:
                         total_loss = L_It + L_At
                     else:
                         # L_r = cross_entropy(acc_logit, my)
-                        L_d = kl_divergence(nn.functional.log_softmax((z/self.T), dim=1), self.act(acc_logit/self.T))
+                        if self.ILtype == 'class':
+                            L_d = kl_divergence(nn.functional.log_softmax((z/self.T), dim=1), self.act(acc_logit[self.cur_classes]/self.T))
+                        else:
+                            L_d = kl_divergence(nn.functional.log_softmax((z/self.T), dim=1), self.act(acc_logit/self.T))
                         L_l = self.alpha*L_r + self.beta*L_d + self.rt*L_At
                         total_loss = L_l + L_It + self.gamma*L_a
                         
