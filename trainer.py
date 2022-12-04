@@ -241,7 +241,7 @@ class Trainer():
             Train one task during configured epoch.
             '''
             # train
-            if task > 0:
+            if task == 0:
                 train_epoch = 70
             else:
                 train_epoch = self.train_epoch
