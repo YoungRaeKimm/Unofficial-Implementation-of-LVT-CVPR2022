@@ -133,7 +133,7 @@ class Trainer():
         self.logger = logging.getLogger()
         self.logger.setLevel(logging.INFO)
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        log_name = f"{self.model_time}.log"
+        log_name = f"{self.model_time}_realfinal.log"
         cur_dir = os.path.dirname(os.path.realpath(__file__))
         file_handler = logging.FileHandler(os.path.join(cur_dir, self.log_dir, 'logs', log_name))
         file_handler.setFormatter(formatter)
@@ -285,7 +285,7 @@ class Trainer():
                         '''
                         Calculate the logit value from accumulation classifier on the data in memory buffer.
                         '''                        
-                        memory_idx = np.random.permutation(self.batch_size)[:self.batch_size]
+                        memory_idx = np.random.permutation(self.memory_size)[:self.batch_size]
                         mx,my,mt = self.memory[memory_idx]
 
                         mx = mx.to(self.device)
