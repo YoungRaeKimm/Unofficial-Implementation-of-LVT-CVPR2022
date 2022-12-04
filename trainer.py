@@ -28,12 +28,12 @@ transform = [
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
 ]
 
 transform_test = [
         transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
 ]
 
 '''Recursively initialize the parameters'''
@@ -90,7 +90,7 @@ class Trainer():
         self.beta = config.beta                     # coefficient of L_d
         self.gamma = config.gamma                   # coefficient of L_a
         self.rt = config.rt                         # coefficient of L_At
-        self.T = 2.                                 # softmax temperature, which is used in distillation loss
+        self.T = 10.                                 # softmax temperature, which is used in distillation loss
         
 
         '''
@@ -118,7 +118,6 @@ class Trainer():
         self.optimizer = optim.SGD(self.model.parameters(), lr = self.lr)
         if self.scheduler:
             self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, self.train_epoch/10, 0.1)
-            
         
         '''random seed'''
         seed = 1234
@@ -141,6 +140,19 @@ class Trainer():
         self.logger.info(f'alpha :{self.alpha} | beta : {self.beta} | gamma : {self.gamma} | rt : {self.rt} | num_head : {self.num_head} | hidden_dim : {self.hidden_dim}')
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
+
+        '''
+        Set logger and log configs
+        '''
+        self.logger = logging.getLogger()
+        self.logger.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        log_name = f"{self.model_time}_realfinal.log"
+        cur_dir = os.path.dirname(os.path.realpath(__file__))
+        file_handler = logging.FileHandler(os.path.join(cur_dir, self.log_dir, 'logs', log_name))
+        file_handler.setFormatter(formatter)
+        self.logger.addHandler(file_handler)
+        self.logger.info(f'alpha :{self.alpha} | beta : {self.beta} | gamma : {self.gamma} | rt : {self.rt} | num_head : {self.num_head} | hidden_dim : {self.hidden_dim}')
         
     '''
     Save the model and memory according to the task number.
@@ -157,7 +169,8 @@ class Trainer():
         torch.save(model, os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", model_name)))
         with open(os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", memory_name)), 'wb') as f:
             pkl.dump(memory, f)
-    
+
+   
     '''
     Core function.
     This function trains the model during whole tasks.
@@ -168,7 +181,7 @@ class Trainer():
         and KL divergence loss to distillate the knowledge of previous task model.
         '''
         cross_entropy = nn.CrossEntropyLoss()
-        kl_divergence = nn.KLDivLoss(log_target=True, reduction='batchmean')
+        kl_divergence = nn.KLDivLoss(reduction='batchmean')
 
         self.model.train()
         '''
@@ -176,8 +189,8 @@ class Trainer():
         '''
         start_task = self.resume_task if self.resume is True else 0
         for task in range(start_task, self.split):
-            if task>2:
-                break
+            # if task > 2:
+            #     break
             data_loader = IncrementalDataLoader(self.dataset, self.data_path, True, self.split, task, self.batch_size, transform)
             # print(data_loader)
             # x : (B, 3, 32, 32) | y : (B,) | t : (B,)
@@ -219,8 +232,8 @@ class Trainer():
                     length += 1
                     x = x.to(device=self.device)
                     y = y.to(device=self.device)
-                    shift_y = torch.full_like(y, task*self.increment)
-                    y = y - shift_y
+                    if self.ILtype == 'task':
+                        y = y % self.increment
 
                     inj_logit = self.prev_model.forward_inj(self.prev_model.forward_backbone(x))
                     # cross_entropy(inj_logit, y).backward()
@@ -245,11 +258,12 @@ class Trainer():
             for epoch in range(self.train_epoch):
                 # Train current Task
                 correct, total = 0, 0
+                correct_m, total_m = 0, 0
                 for batch_idx, (x, y, t) in enumerate(data_loader):
                     x = x.to(device=self.device)
                     y = y.to(device=self.device)
-                    shift_y = torch.full_like(y, task*self.increment)
-                    y = y - shift_y
+                    if self.ILtype == 'task':
+                        y = y % self.increment
 
                     feature = self.model.forward_backbone(x)
                     inj_logit = self.model.forward_inj(feature)
@@ -282,40 +296,29 @@ class Trainer():
                         when the previous gradient value exists.
                         This loss can be regarded as the interation with previous task.
                         '''
-                        L_a = (torch.abs(torch.tensordot(prev_avg_K_grad, (self.model.get_K() - K_w_prev)))).sum() + \
-                                (torch.abs(torch.tensordot(prev_avg_bias_grad, (self.model.get_bias() - K_bias_prev), dims=([2, 1], [2, 1])))).sum()
+                        L_a = (torch.abs(torch.tensordot(prev_avg_K_grad, (self.model.get_K() - K_w_prev)))).sum() / 7168. + \
+                                (torch.abs(torch.tensordot(prev_avg_bias_grad, (self.model.get_bias() - K_bias_prev), dims=([2, 1], [2, 1])))).sum() / 196608.
                         
                         '''
                         Calculate the logit value from accumulation classifier on the data in memory buffer.
                         '''                        
-                        t = np.random.randint(0, task)
-                        chunk_size  = (self.memory_size // (self.increment * task)) * self.increment
-                        memory_idx = np.random.permutation(np.arange(chunk_size*t, chunk_size*(t+1)))[:self.batch_size]
+                        memory_idx = np.random.permutation(self.memory_size)[:self.batch_size]
                         mx,my,mt = self.memory[memory_idx]
-
-                        # if examplars are smaller than batch, repeat to match the size
-                        if chunk_size < self.batch_size:
-                            mx = torch.concat([mx, mx])[:self.batch_size]
-                            my = torch.concat([my, my])[:self.batch_size]
-                            mt = torch.concat([mt, mt])[:self.batch_size]
 
                         mx = mx.to(self.device)
                         my = my.type(torch.LongTensor).to(self.device)
-                        assert(mt.sum()==t*mt.size(0))
-                        mt = t
-
-                        # Shift label to first task
-                        shift_my = torch.full_like(my, mt*self.increment)
-                        my = my - shift_my
 
                         if self.ILtype=='task':
+                            my = my % self.increment
                             features = self.model.forward_backbone(mx)
                             features_prev = self.prev_model.forward_backbone(mx)
                             L_r = None
+                            
+                            
                             for i in range(self.batch_size):
                                 if L_r is None:
                                     acc_logit = self.model.forward_acc(features[i,...], int(mt[i].item()))
-                                    z = self.prev_model.forward_acc(features_prev[i,..], int(mt[i].item())).unsqueeze(0)
+                                    z = self.prev_model.forward_acc(features_prev[i,...], int(mt[i].item())).unsqueeze(0)
                                     L_r = cross_entropy(acc_logit, my[i,...])
                                     acc_logit = acc_logit.unsqueeze(0)
                                 else:
@@ -324,8 +327,21 @@ class Trainer():
                                     z = torch.concat([z, z_.unsqueeze(0)], dim=0)
                                     L_r += cross_entropy(acc_log, my[i,...])
                                     acc_logit = torch.concat([acc_logit, acc_log.unsqueeze(0)], dim=0)
+                                    
+                            _, predicted_m = torch.max(acc_logit, 1)
+                            correct_m += (predicted_m == my).sum().item()
+                            total_m += my.size(0)
+                            
                         else:
                             acc_logit = self.model.forward_acc(self.model.forward_backbone(mx))
+                            z = self.prev_model.forward_acc(self.prev_model.forward_backbone(mx))
+                            L_r = cross_entropy(acc_logit, my)
+                            _, predicted_m = torch.max(acc_logit, 1)
+                            if epoch == 40:
+                                print(predicted_m)
+                                print(my)
+                            correct_m += (predicted_m == my).sum().item()
+                            total_m += my.size(0)
                         
                         # print(f'For dim: acclogit size {acc_logit.size()}, z size {z.size()}')
                     else:
@@ -337,7 +353,7 @@ class Trainer():
                     if task == 0:
                         total_loss = L_It + L_At
                     else:
-                        L_r = cross_entropy(acc_logit, my)
+                        # L_r = cross_entropy(acc_logit, my)
                         L_d = kl_divergence(nn.functional.log_softmax((z/self.T), dim=1), self.act(acc_logit/self.T))
                         L_l = self.alpha*L_r + self.beta*L_d + self.rt*L_At
                         total_loss = L_l + L_It + self.gamma*L_a
@@ -353,7 +369,10 @@ class Trainer():
                     '''                    
                     self.optimizer.zero_grad()
                     total_loss.backward()
+                    # if task == 0:
                     nn.utils.clip_grad_norm_(self.model.parameters(), 5.)
+                    # else:
+                    #     nn.utils.clip_grad_norm_(self.model.parameters(), 10.)
                     self.optimizer.step()
                     self.optimizer.zero_grad()
                     # print(f'batch : {batch_idx} | L : {total_loss} | L_It : {L_It} | L_d :{L_d} | acc : {acc_logit.max()}')
@@ -361,11 +380,11 @@ class Trainer():
                 Logging
                 '''
                 if task == 0:
-                    self.logger.info(f'epoch {epoch} | L_At :{L_At:.3f}| L_It : {L_It:.3f}| train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f}')
+                    self.logger.info(f'epoch {epoch} | L_At :{L_At:.3f}| L_It : {L_It:.3f}| train_loss :{total_loss:.3f} | accuracy : {100*correct/total:.3f}')
                     print(f'epoch {epoch} | L_At :{L_At:.3f}| L_It : {L_It:.3f}| train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f}')
                 else:
-                    self.logger.info(f'epoch {epoch} | L_At (acc):{L_At:.3f}| L_It (inj): {L_It:.3f}| L_a (att): {L_a:.3f}| L_l (accum): {L_l:.3f}| L_r (replay): {L_r:.3f}| L_d (dark) : {L_d:.3f}|  train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f}')
-                    print(f'epoch {epoch} | L_At (acc):{L_At:.3f}| L_It (inj): {L_It:.3f}| L_a (att): {L_a:.3f}| L_l (accum): {L_l:.3f}| L_r (replay): {L_r:.3f}| L_d (dark) : {L_d:.3f}|  train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f}')
+                    self.logger.info(f'epoch {epoch} | L_At (acc):{L_At:.3f}| L_It (inj): {L_It:.3f}| L_a (att): {L_a}| L_l (accum): {L_l:.3f}| L_r (replay): {L_r:.3f}| L_d (dark) : {L_d:.3f}|  train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f} | m_accuracy : {100*correct_m/total_m:.3f}')
+                    print(f'epoch {epoch} | L_At (acc):{L_At:.3f}| L_It (inj): {L_It:.3f}| L_a (att): {L_a}| L_l (accum): {L_l:.3f}| L_r (replay): {L_r:.3f}| L_d (dark) : {L_d:.3f}|  train_loss :{total_loss:.3f} |  accuracy : {100*correct/total:.3f} | m_accuracy : {100*correct_m/total_m:.3f}')
             
 
             '''Update memory'''
@@ -379,8 +398,8 @@ class Trainer():
                 labels_list.append(y)
                 x = x.to(device=self.device)
                 y = y.to(device=self.device)
-                shift_y = torch.full_like(y, task*self.increment)
-                y = y - shift_y
+                if self.ILtype == 'task':
+                    y = y % self.increment
                 feature = self.model.forward_backbone(x)
                 inj_logit = self.model.forward_inj(feature)
 
@@ -446,11 +465,15 @@ class Trainer():
                 for x, y, t in data_loader:
                     x = x.to(device=self.device)
                     y = y.to(device=self.device)
-                    shift_y = torch.full_like(y, task_id*self.increment)
-                    y = y - shift_y
+                    if self.ILtype == 'task':
+                        y = y % self.increment
+                        acc_logit = self.model.forward_acc(self.model.forward_backbone(x), task_id)
+                    else:
+                        acc_logit = self.model.forward_acc(self.model.forward_backbone(x))
 
-                    acc_logit = self.model.forward_acc(self.model.forward_backbone(x), task_id)
                     _, predicted = torch.max(acc_logit, 1)
+                    print(predicted)
+                    print(y)
                     correct += (predicted == y).sum().item()
                     total += y.size(0)
                 acc.append(100*correct/total)
