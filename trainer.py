@@ -322,8 +322,9 @@ class Trainer():
                             z = self.prev_model.forward_acc(self.prev_model.forward_backbone(mx))
                             L_r = cross_entropy(acc_logit, my)
                             _, predicted_m = torch.max(acc_logit, 1)
-                            print(predicted_m)
-                            print(my)
+                            if epoch == 40:
+                                print(predicted_m)
+                                print(my)
                             correct_m += (predicted_m == my).sum().item()
                             total_m += my.size(0)
                         
