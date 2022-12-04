@@ -7,14 +7,14 @@ timestamp=$(date +%s)
                         # --resume_time 20221201_1356 \
 py3clean ./
 CUDA_VISIBLE_DEVICES=0 python3 -B ../run.py \
-                        --ILtype task \
+                        --ILtype class \
                         --dataset cifar100 \
                         --split 10 \
-                        --alpha 0.1 \
-                        --beta 0.1 \
-                        --gamma 0.1 \
-                        --memory_size 500 \
-                        --rt 2. \
+                        --alpha 2. \
+                        --beta 2. \
+                        --gamma 2. \
+                        --memory_size 1000 \
+                        --rt 1. \
                         --num_head 2 \
                         --hidden_dim 512 \
                         # -everytest False \

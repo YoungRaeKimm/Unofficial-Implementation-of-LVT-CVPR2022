@@ -204,7 +204,7 @@ class LVT(nn.Module):
         else:
             weight = self.acc_clf.weight.data.clone().detach()
             self.acc_clf = torch.nn.Linear(self.dim*4, self.n_class)
-            self.init_clf(self.acc_clf.weight)
+            self.init_clf(self.acc_clf)
             self.acc_clf.weight.data[:self.n_class-n_class] = weight
         self.inj_clf.to(self.device)
         self.acc_clf.to(self.device)

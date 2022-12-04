@@ -217,7 +217,8 @@ class Trainer():
                     length += 1
                     x = x.to(device=self.device)
                     y = y.to(device=self.device)
-                    y = y % self.increment
+                    if self.ILtype == 'task':
+                        y = y % self.increment
 
                     inj_logit = self.prev_model.forward_inj(self.prev_model.forward_backbone(x))
                     # cross_entropy(inj_logit, y).backward()
@@ -246,7 +247,8 @@ class Trainer():
                 for batch_idx, (x, y, t) in enumerate(data_loader):
                     x = x.to(device=self.device)
                     y = y.to(device=self.device)
-                    y = y % self.increment
+                    if self.ILtype == 'task':
+                        y = y % self.increment
 
                     feature = self.model.forward_backbone(x)
                     inj_logit = self.model.forward_inj(feature)
@@ -285,14 +287,14 @@ class Trainer():
                         '''
                         Calculate the logit value from accumulation classifier on the data in memory buffer.
                         '''                        
-                        memory_idx = np.random.permutation(self.batch_size)[:self.batch_size]
+                        memory_idx = np.random.permutation(self.memory_size)[:self.batch_size]
                         mx,my,mt = self.memory[memory_idx]
 
                         mx = mx.to(self.device)
                         my = my.type(torch.LongTensor).to(self.device)
-                        my = my % self.increment
 
                         if self.ILtype=='task':
+                            my = my % self.increment
                             features = self.model.forward_backbone(mx)
                             features_prev = self.prev_model.forward_backbone(mx)
                             L_r = None
@@ -317,6 +319,13 @@ class Trainer():
                             
                         else:
                             acc_logit = self.model.forward_acc(self.model.forward_backbone(mx))
+                            z = self.prev_model.forward_acc(self.prev_model.forward_backbone(mx))
+                            L_r = cross_entropy(acc_logit, my)
+                            _, predicted_m = torch.max(acc_logit, 1)
+                            print(predicted_m)
+                            print(my)
+                            correct_m += (predicted_m == my).sum().item()
+                            total_m += my.size(0)
                         
                         # print(f'For dim: acclogit size {acc_logit.size()}, z size {z.size()}')
                     else:
@@ -373,7 +382,8 @@ class Trainer():
                 labels_list.append(y)
                 x = x.to(device=self.device)
                 y = y.to(device=self.device)
-                y = y % self.increment
+                if self.ILtype == 'task':
+                    y = y % self.increment
                 feature = self.model.forward_backbone(x)
                 inj_logit = self.model.forward_inj(feature)
 
@@ -439,10 +449,15 @@ class Trainer():
                 for x, y, t in data_loader:
                     x = x.to(device=self.device)
                     y = y.to(device=self.device)
-                    y = y % self.increment
+                    if self.ILtype == 'task':
+                        y = y % self.increment
+                        acc_logit = self.model.forward_acc(self.model.forward_backbone(x), task_id)
+                    else:
+                        acc_logit = self.model.forward_acc(self.model.forward_backbone(x))
 
-                    acc_logit = self.model.forward_acc(self.model.forward_backbone(x), task_id)
                     _, predicted = torch.max(acc_logit, 1)
+                    print(predicted)
+                    print(y)
                     correct += (predicted == y).sum().item()
                     total += y.size(0)
                 acc.append(100*correct/total)
