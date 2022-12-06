@@ -58,10 +58,11 @@ def confidence_score(z, c):
     return score
 
 class MemoryDataset(Dataset):
-    def __init__(self, x, y, t, k):
+    def __init__(self, x, y, t, z, k):
         self.x = x
         self.y = y
         self.t = t
+        self.z = z
         self.k = k
         self.size = len(self.x)
     
@@ -69,12 +70,13 @@ class MemoryDataset(Dataset):
         return self.size
     
     def __getitem__(self, idx):
-        return self.x[idx], self.y[idx], self.t[idx]
+        return self.x[idx], self.y[idx], self.t[idx], self.z[idx]
 
     def remove_examplars(self, new_k):
         new_x = torch.zeros_like(self.x)
         new_y = torch.zeros_like(self.y)
         new_t = torch.zeros_like(self.t)
+        new_z = torch.zeros_like(self.z)
 
         for i, start in enumerate(range(0, self.size, self.k)):
             if start+new_k > self.size:
@@ -82,13 +84,16 @@ class MemoryDataset(Dataset):
             new_x[new_k*i:new_k*(i+1)] = self.x[start:start+new_k]
             new_y[new_k*i:new_k*(i+1)] = self.y[start:start+new_k]
             new_t[new_k*i:new_k*(i+1)] = self.t[start:start+new_k]
+            new_z[new_k*i:new_k*(i+1)] = self.z[start:start+new_k]
 
         self.x = new_x
         self.y = new_y
         self.t = new_t.type(torch.LongTensor)
+        self.z = new_z
         self.k = new_k
     
-    def update_memory(self, label, new_x, new_y, new_t):
-        self.x[label*self.k:(label+1)*self.k,:,:,:] = new_x
+    def update_memory(self, label, new_x, new_y, new_t, new_z):
+        self.x[label*self.k:(label+1)*self.k,...] = new_x
         self.y[label*self.k:(label+1)*self.k] = new_y
         self.t[label*self.k:(label+1)*self.k] = new_t
+        self.z[label*self.k:(label+1)*self.k,...] = new_z
