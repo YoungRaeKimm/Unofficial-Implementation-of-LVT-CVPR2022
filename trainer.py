@@ -133,7 +133,7 @@ class Trainer():
         self.logger = logging.getLogger()
         self.logger.setLevel(logging.INFO)
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        log_name = f"{self.model_time}_realfinal.log"
+        log_name = f"{self.model_time}_fix_z.log"
         cur_dir = os.path.dirname(os.path.realpath(__file__))
         file_handler = logging.FileHandler(os.path.join(cur_dir, self.log_dir, 'logs', log_name))
         file_handler.setFormatter(formatter)
@@ -413,9 +413,24 @@ class Trainer():
                 new_x = xs[conf_score_sorted[labels==label][:K]]
                 new_y = labels[conf_score_sorted[labels==label][:K]]
                 new_t = torch.full((K,), task).type(torch.LongTensor)
-                x = new_x.to(device=self.device)
-                new_z = self.prev_model.forward_acc(self.prev_model.forward_backbone(x))
-                print(new_z.shape)
+                new_z = None
+                
+                for chunk in range(0, new_x.shape[0], self.batch_size):
+                    x = new_x[chunk:chunk+self.batch_size]
+                    n_samples = x.shape[0]
+                    if n_samples < 32:
+                        pad_size = self.batch_size - n_samples
+                        zero_pad = torch.zeros((pad_size, *x.shape[1:]))
+                        x = torch.concat([x, zero_pad])
+                    x = x.to(device=self.device)
+                    z = self.prev_model.forward_acc(self.prev_model.forward_backbone(x))
+                    z = z[:n_samples].detach().cpu()
+                    if new_z is None:
+                        new_z = z
+                    else:
+                        new_z = torch.concat([new_z, z], dim=0)
+                print('x shape : ', new_x.shape)
+                print('z shape : ', new_z.shape)
                 self.memory.update_memory(label, new_x, new_y, new_t, new_z)
                 
             '''updatae r(t)'''
@@ -465,8 +480,8 @@ class Trainer():
                         acc_logit = self.model.forward_acc(self.model.forward_backbone(x))
 
                     _, predicted = torch.max(acc_logit, 1)
-                    print(predicted)
-                    print(y)
+                    # print(predicted)
+                    # print(y)
                     correct += (predicted == y).sum().item()
                     total += y.size(0)
                 acc.append(100*correct/total)
