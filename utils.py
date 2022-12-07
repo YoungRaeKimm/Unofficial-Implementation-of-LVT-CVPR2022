@@ -18,9 +18,9 @@ def toGreen(content):
 def toBlue(content):
     return termcolor.colored(content,"blue",attrs=["bold"])
 
+'''return dataset transforms according to the dataset'''
 def get_transforms(dataset, test=False):
     
-    '''dataset transforms'''
     if dataset == 'cifar100':
         transform = [
                 transforms.RandomCrop(32, padding=4),
@@ -55,8 +55,8 @@ def get_transforms(dataset, test=False):
     else:
         return transform_test
 
+'''Using incremental dataset library continuum'''
 def IncrementalDataLoader(dataset_name, data_path, train, n_split, task_id, batch_size, transform):
-    
     '''random seed'''
     seed = 1234
     random.seed(seed)
@@ -88,6 +88,10 @@ def IncrementalDataLoader(dataset_name, data_path, train, n_split, task_id, batc
     loader = DataLoader(scenario[task_id], batch_size = batch_size, shuffle=True, drop_last=True)
     return loader
 
+'''
+Equation (8) in paper
+Store the examplars considering this confidence score value.
+'''
 def confidence_score(z, c):
     B = z.shape[0]
     score = torch.zeros(B)
@@ -95,6 +99,15 @@ def confidence_score(z, c):
         score[i] = torch.exp(z[i, c[i]]) / (torch.exp(z[i, :])).sum()
     return score
 
+'''
+Memory Buffer
+It stores data(x), label(y), task(t), logit value(z) from previous task.
+k is the size per label.
+The size of memory is fixed, therefore have to update the stored values
+considering the size per class.
+In other words, if new class is newly registered to memory buffer,
+then remove before examplars and insert new impressive class data.
+'''
 class MemoryDataset(Dataset):
     def __init__(self, x, y, t, z, k):
         self.x = x

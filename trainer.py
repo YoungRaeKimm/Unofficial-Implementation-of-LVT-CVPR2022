@@ -471,8 +471,6 @@ class Trainer():
                 self.logger.info(f'Task {task_id}')
                 print(toRed(f'----- Task {task_id} -----'))
                 task_result = self.eval(task_id, True)
-                # self.logger.info(f'Total test accuracy on task {task_id} : {task_result}')
-                # print(toGreen(f'Total test accuracy on task {task_id} : {task_result}'))
                 result_acc[task_id, :task_id+1] = np.array(task_result)
                 
         avg_forgetting = [0]
