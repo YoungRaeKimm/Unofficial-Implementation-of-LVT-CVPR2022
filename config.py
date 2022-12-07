@@ -10,7 +10,6 @@ def get_config(dataset = 'cifar100'):
         config.epoch = 50
         config.lr=0.1
         config.split=10
-        config.memory_size = 1000
         config.ILtype = 'task'
         config.scheduler = False
 
@@ -19,7 +18,6 @@ def get_config(dataset = 'cifar100'):
         config.epoch = 100
         config.lr=0.1
         config.split=10
-        config.memory_size = 200
         config.ILtype = 'task'
         config.scheduler = False
 
@@ -28,7 +26,6 @@ def get_config(dataset = 'cifar100'):
         config.epoch = 100
         config.lr=0.1
         config.split=10
-        config.memory_size = 200
         config.ILtype = 'task'
         config.scheduler = True
 
