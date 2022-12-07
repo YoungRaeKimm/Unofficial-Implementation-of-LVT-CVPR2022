@@ -8,9 +8,6 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--test', action = 'store_true', default = False, help = 'test')
-    parser.add_argument('--resume', action = 'store_true', default = False, help = 'resume or not')
-    parser.add_argument('--resume_task', type = int, default = 1, help = 'resume task')
-    parser.add_argument('--resume_time', type = str, default = '20221130_1356', help = 'resume time')
     parser.add_argument('--log_dir', type = str, default = 'ckpt', help = 'log directory')
     parser.add_argument('--ILtype', type = str, default = 'task', help = 'task, class')
     parser.add_argument('--datapath', type = str, default = '/data/nahappy15/cifar100/', help = 'data path')
@@ -28,10 +25,6 @@ if __name__ == '__main__':
     config = get_config(dataset=args.dataset)
     ## default
     config.test = args.test
-    config.resume = args.resume
-    print(f'Resume : {config.resume}')
-    config.resume_task = args.resume_task
-    config.resume_time = args.resume_time
     config.log_dir = args.log_dir
     config.ILtype = args.ILtype
     config.data_path = args.datapath

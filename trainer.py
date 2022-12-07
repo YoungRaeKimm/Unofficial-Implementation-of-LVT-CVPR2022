@@ -61,9 +61,6 @@ class Trainer():
         else:
             self.n_classes = 100
         self.increment = int(self.n_classes//self.split)
-        self.resume = config.resume
-        self.resume_task = config.resume_task
-        self.resume_time = config.resume_time
         self.cur_classes = self.increment
         self.model_time = time.strftime("%Y%m%d_%H%M%S")
         
@@ -77,23 +74,12 @@ class Trainer():
         self.rt = config.rt                         # coefficient of L_At
         self.T = 2.                                 # softmax temperature, which is used in distillation loss
         
-        
         '''
-        If resume flag is True, then create the LVT and load the saved check point
-        If it is False, then create the LVT and initialize the parameters.
+        Create the LVT and initialize the parameters.
         '''
-        if config.resume or config.test:
-            self.model = LVT(batch=self.batch_size, n_class=self.increment*self.resume_task, IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias, device=self.device).to(self.device)
-            cur_dir = os.path.dirname(os.path.realpath(__file__))
-            model_name = f'model_{self.resume_time}_task_{self.resume_task-1}.pt'
-            self.model = torch.load(os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", model_name)), map_location=self.device)
-            # import pdb; pdb.set_trace()
-            self.prev_model = deepcopy(self.model).to(self.device)
-            self.model.add_classes(self.increment)
-        else:
-            self.model = LVT(batch=self.batch_size, n_class=self.increment, IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias, device=self.device).to(self.device)
-            self.prev_model = None
-            self.model.apply(init_xavier)
+        self.model = LVT(batch=self.batch_size, n_class=self.increment, IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias, device=self.device).to(self.device)
+        self.prev_model = None
+        self.model.apply(init_xavier)
         
         '''
         Since dimension of memory depends on the dimension of input image,
@@ -124,23 +110,20 @@ class Trainer():
         file_handler = logging.FileHandler(os.path.join(cur_dir, self.log_dir, 'logs', log_name))
         file_handler.setFormatter(formatter)
         self.logger.addHandler(file_handler)
-        self.logger.info(f'alpha :{self.alpha} | beta : {self.beta} | gamma : {self.gamma} | rt : {self.rt} | num_head : {self.num_head} | hidden_dim : {self.hidden_dim} | memory_size : {self.memory_size}')
+        self.logger.info(f'alpha :{self.alpha} | beta : {self.beta} | gamma : {self.gamma} | rt : {self.rt} | num_head : {self.num_head} | hidden_dim : {self.hidden_dim} | memory_size : {self.memory_size} | dataset : {self.dataset}')
         
     '''
     Save the model and memory according to the task number.
     '''
     def save(self, model, memory, task):
-        model_name = f"model_{self.model_time}_task_{task}.pt"
-        memory_name = f"memory_{self.model_time}_task_{task}.pt"
+        model_name = f"{self.dataset}_model_{self.model_time}_task_{task}.pt"
         print(f'Model saved as {model_name}')
-        print(f'Memory saved as {memory_name}')
         cur_dir = os.path.dirname(os.path.realpath(__file__))
         print(f'Path : {os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", model_name))}')
+        self.logger.info(f'Model saved as {model_name}')
         torch.save(model, os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", model_name)))
-        with open(os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", memory_name)), 'wb') as f:
-            pkl.dump(memory, f)
 
-   
+
     '''
     Core function.
     This function trains the model during whole tasks.
@@ -157,37 +140,23 @@ class Trainer():
         '''
         Task starts.
         '''
-        start_task = self.resume_task if self.resume is True else 0
-        for task in range(start_task, self.split):
-            # if task > 2:
-            #     break
+        for task in range(self.split):
             data_loader = IncrementalDataLoader(self.dataset, self.data_path, True, self.split, task, self.batch_size, get_transforms(self.dataset))
-            # print(data_loader)
             # x : (B, 3, 32, 32) | y : (B,) | t : (B,)
             x = data_loader.dataset[0][0]
             K = self.memory_size // (self.increment * (task+1))
 
             '''
             Initialize memory buffer.
-            If resume flag is True, load the saved memory.
-            Else make memory.
             '''
             if self.memory is None:
-                if self.resume:
-                    cur_dir = os.path.dirname(os.path.realpath(__file__))
-                    memory_name = f'memory_{self.resume_time}_task_{self.resume_task-1}.pt'
-                    with open(os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", memory_name)), 'rb') as f:
-                        self.memory = pkl.load(f)
-                else:
-                    self.memory = MemoryDataset(
-                        torch.zeros(self.memory_size, *x.shape),
-                        torch.zeros(self.memory_size),
-                        torch.zeros(self.memory_size),
-                        torch.zeros(self.memory_size, self.increment),
-                        K
-                    )
-                # else:
-            #     memory_loader = DataLoader(MemoryDataset, batch_size=self.batch_size, shuffle=True)
+                self.memory = MemoryDataset(
+                    torch.zeros(self.memory_size, *x.shape),
+                    torch.zeros(self.memory_size),
+                    torch.zeros(self.memory_size),
+                    torch.zeros(self.memory_size, self.increment),
+                    K
+                )
 
             
             '''
@@ -493,16 +462,18 @@ class Trainer():
         with torch.no_grad():
             for task_id in range(self.split):
                 '''Load model'''
-                self.model = LVT(batch=self.batch_size, n_class=self.increment*self.resume_task, IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias, device=self.device).to(self.device)
+                self.model = LVT(batch=self.batch_size, n_class=self.increment*(task_id+1), IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias, device=self.device).to(self.device)
                 cur_dir = os.path.dirname(os.path.realpath(__file__))
                 model_name = f'{self.dataset}_task_{task_id}.pt'
                 self.model = torch.load(os.path.join(os.path.join(cur_dir, self.log_dir, "best_models", model_name)), map_location=self.device)
                 self.model.add_classes(self.increment)
                 '''evaluation for task task_id'''
-                task_result = self.eval(task_id)
-                self.logger.info(f'Test accuracy on task {task_id} : {task_result}')
-                print(toGreen(f'Test accuracy on task {task_id} : {task_result}'))
-                result_acc[task_id, :self.split+1] = np.array(task_result)
+                self.logger.info(f'Task {task_id}')
+                print(toRed(f'----- Task {task_id} -----'))
+                task_result = self.eval(task_id, True)
+                # self.logger.info(f'Total test accuracy on task {task_id} : {task_result}')
+                # print(toGreen(f'Total test accuracy on task {task_id} : {task_result}'))
+                result_acc[task_id, :task_id+1] = np.array(task_result)
                 
         forgetting = []
         for t in range(self.split):
