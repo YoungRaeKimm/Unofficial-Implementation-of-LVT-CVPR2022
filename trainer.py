@@ -387,8 +387,10 @@ class Trainer():
                         new_z = z
                     else:
                         new_z = torch.concat([new_z, z], dim=0)
-                print('x shape : ', new_x.shape)
-                print('z shape : ', new_z.shape)
+                # print('x shape : ', new_x.shape)
+                # print('z shape : ', new_z.shape)
+                if self.ILtype == "class":
+                    new_z = new_z[:,-self.increment:]
                 self.memory.update_memory(label, new_x, new_y, new_t, new_z)
                 
             '''updatae r(t)'''
