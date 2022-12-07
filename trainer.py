@@ -299,7 +299,7 @@ class Trainer():
                     else:
                         # L_r = cross_entropy(acc_logit, my)
                         if self.ILtype == 'class':
-                            L_d = kl_divergence(nn.functional.log_softmax((z/self.T), dim=1), self.act(acc_logit[:self.cur_classes-self.increment]/self.T))
+                            L_d = kl_divergence(nn.functional.log_softmax((z/self.T), dim=1), self.act(acc_logit[:,:self.cur_classes-self.increment]/self.T))
                         else:
                             L_d = kl_divergence(nn.functional.log_softmax((z/self.T), dim=1), self.act(acc_logit/self.T))
                         L_l = self.alpha*L_r + self.beta*L_d + self.rt*L_At
