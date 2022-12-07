@@ -22,6 +22,7 @@ if __name__ == '__main__':
     parser.add_argument('--rt', type = float, default = 1.0, help = 'Loss hyperparameter')
     parser.add_argument('--num_head', type = int, default = 2, help = 'number of attention head')
     parser.add_argument('--hidden_dim', type = int, default = 512, help = 'number of hidden dimension of attention')
+    parser.add_argument('--memory_size', type = int, default = 500, help = 'memory buffer size')
     args, _ = parser.parse_known_args()
 
     config = get_config(dataset=args.dataset)
@@ -42,6 +43,7 @@ if __name__ == '__main__':
     config.rt = args.rt
     config.num_head = args.num_head
     config.hidden_dim = args.hidden_dim
+    config.memory_size = args.memory_size
 
 
     trainer = Trainer(config)

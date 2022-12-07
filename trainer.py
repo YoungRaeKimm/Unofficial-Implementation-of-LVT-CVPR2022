@@ -144,9 +144,8 @@ class Trainer():
     Save the model and memory according to the task number.
     '''
     def save(self, model, memory, task):
-        model_time = time.strftime("%Y%m%d_%H%M")
-        model_name = f"model_{model_time}_task_{task}.pt"
-        memory_name = f"memory_{model_time}_task_{task}.pt"
+        model_name = f"model_{self.model_time}_task_{task}.pt"
+        memory_name = f"memory_{self.model_time}_task_{task}.pt"
         print(f'Model saved as {model_name}')
         print(f'Memory saved as {memory_name}')
         cur_dir = os.path.dirname(os.path.realpath(__file__))
@@ -242,7 +241,7 @@ class Trainer():
             '''
             # train
             if task == 0:
-                train_epoch = 70
+                train_epoch = 50
             else:
                 train_epoch = self.train_epoch
             for epoch in range(train_epoch):
