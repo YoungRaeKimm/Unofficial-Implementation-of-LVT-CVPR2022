@@ -3,7 +3,6 @@ import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torchvision.transforms as transforms
 import pickle as pkl
 import random
 import numpy as np
@@ -11,7 +10,7 @@ import logging
 
 from copy import deepcopy
 from models.lvt import *
-from utils import IncrementalDataLoader, confidence_score, MemoryDataset, toRed, toBlue, toGreen
+from utils import IncrementalDataLoader, confidence_score, MemoryDataset, get_transforms, toRed, toBlue, toGreen
     
 
 '''random seed'''
@@ -23,19 +22,6 @@ torch.cuda.manual_seed_all(seed)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
         
-'''dataset transforms'''
-transform = [
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-]
-
-transform_test = [
-        transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-]
-
 '''Recursively initialize the parameters'''
 def init_xavier(submodule):
     if isinstance(submodule, torch.nn.Conv2d):
@@ -175,7 +161,7 @@ class Trainer():
         for task in range(start_task, self.split):
             # if task > 2:
             #     break
-            data_loader = IncrementalDataLoader(self.dataset, self.data_path, True, self.split, task, self.batch_size, transform)
+            data_loader = IncrementalDataLoader(self.dataset, self.data_path, True, self.split, task, self.batch_size, get_transforms(self.dataset))
             # print(data_loader)
             # x : (B, 3, 32, 32) | y : (B,) | t : (B,)
             x = data_loader.dataset[0][0]
@@ -213,7 +199,7 @@ class Trainer():
                 prev_avg_K_grad = None
                 prev_avg_bias_grad = None
                 length = 0
-                prev_data_loader = IncrementalDataLoader(self.dataset, self.data_path, True, self.split, task-1, self.batch_size, transform)
+                prev_data_loader = IncrementalDataLoader(self.dataset, self.data_path, True, self.split, task-1, self.batch_size, get_transforms(self.dataset))
                 for x, y, _ in prev_data_loader:
                     length += 1
                     x = x.to(device=self.device)
@@ -469,7 +455,7 @@ class Trainer():
         with torch.no_grad():
             for task_id in range(task+1):
                 correct, total = 0, 0
-                data_loader = IncrementalDataLoader(self.dataset, self.data_path, False, self.split, task_id, self.batch_size, transform_test)
+                data_loader = IncrementalDataLoader(self.dataset, self.data_path, False, self.split, task_id, self.batch_size, get_transforms(self.dataset, True))
                 for x, y, t in data_loader:
                     x = x.to(device=self.device)
                     y = y.to(device=self.device)

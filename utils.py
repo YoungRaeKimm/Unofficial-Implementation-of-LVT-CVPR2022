@@ -1,5 +1,6 @@
 import torch
 from torch.utils.data import DataLoader, Dataset
+import torchvision.transforms as transforms
 from continuum import ClassIncremental
 from continuum.datasets import CIFAR100, TinyImageNet200, ImageNet100
 import random
@@ -17,6 +18,43 @@ def toGreen(content):
 def toBlue(content):
     return termcolor.colored(content,"blue",attrs=["bold"])
 
+def get_transforms(dataset, test=False):
+    
+    '''dataset transforms'''
+    if dataset == 'cifar100':
+        transform = [
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+        ]
+
+        transform_test = [
+                transforms.ToTensor(),
+                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+        ]
+    else:
+        transform = [
+            transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                std=[0.229, 0.224, 0.225])
+        ]
+
+        transform_test = [
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                std=[0.229, 0.224, 0.225])
+        ]
+        
+    if test == False:
+        return transform
+    else:
+        return transform_test
+
 def IncrementalDataLoader(dataset_name, data_path, train, n_split, task_id, batch_size, transform):
     
     '''random seed'''
@@ -33,7 +71,7 @@ def IncrementalDataLoader(dataset_name, data_path, train, n_split, task_id, batc
         return False
 
     dataset_name = dataset_name.lower()
-    download = len(os.listdir(data_path)) <= 0
+    download = os.path.exists(data_path) == False
     n_classes = 100
     if dataset_name == 'cifar100':
         dataset = CIFAR100(data_path, download=download, train=train)
