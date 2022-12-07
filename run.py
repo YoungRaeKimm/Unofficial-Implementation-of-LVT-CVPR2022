@@ -48,6 +48,6 @@ if __name__ == '__main__':
 
     trainer = Trainer(config)
     if args.test:
-        trainer.eval(config.split)
+        trainer.test()
     else:
         trainer.train()

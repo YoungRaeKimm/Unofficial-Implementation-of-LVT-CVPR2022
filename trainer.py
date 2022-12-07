@@ -89,7 +89,7 @@ class Trainer():
         self.beta = config.beta                     # coefficient of L_d
         self.gamma = config.gamma                   # coefficient of L_a
         self.rt = config.rt                         # coefficient of L_At
-        self.T = 10.                                 # softmax temperature, which is used in distillation loss
+        self.T = 2.                                 # softmax temperature, which is used in distillation loss
         
         
         '''
@@ -460,9 +460,10 @@ class Trainer():
             self.eval(task)
     
     '''
-    In this function, just evaluate the model on whole previous tasks.
+    In this function, just evaluate the model on whole previous tasks 
+    where the model is just after trained with current task data.
     '''
-    def eval(self, task):
+    def eval(self, task, test=False):
         self.model.eval()
         acc = []
         with torch.no_grad():
@@ -488,4 +489,41 @@ class Trainer():
                 print(toGreen(f'Test accuracy on task {task_id} : {100*correct/total}'))
         self.logger.info(f'Total test accuracy on task {task} : {sum(acc)/len(acc)}')
         print(toGreen(f'Total test accuracy on task {task} : {sum(acc)/len(acc)}'))
+        self.model.train()
+        if test:
+            return acc
+        
+    
+    '''
+    Test the model.
+    The difference between eval function is that
+    this function evaluates the model which is loaded for every task.
+    In other words, for each task, the model is loaded according to the task number,
+    and it will be evaluated.
+    '''
+    def test(self):
+        self.model.eval()
+        result_acc = np.zeros((self.split, self.split))
+        with torch.no_grad():
+            for task_id in range(self.split):
+                '''Load model'''
+                self.model = LVT(batch=self.batch_size, n_class=self.increment*self.resume_task, IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias, device=self.device).to(self.device)
+                cur_dir = os.path.dirname(os.path.realpath(__file__))
+                model_name = f'{self.dataset}_task_{task_id}.pt'
+                self.model = torch.load(os.path.join(os.path.join(cur_dir, self.log_dir, "best_models", model_name)), map_location=self.device)
+                self.model.add_classes(self.increment)
+                '''evaluation for task task_id'''
+                task_result = self.eval(task_id)
+                self.logger.info(f'Test accuracy on task {task_id} : {task_result}')
+                print(toGreen(f'Test accuracy on task {task_id} : {task_result}'))
+                result_acc[task_id, :self.split+1] = np.array(task_result)
+                
+        forgetting = []
+        for t in range(self.split):
+            forgetting.append(max(result_acc[:,t] - result_acc[self.split-1,t]))
+        accuracies = np.sum(result_acc, axis=1)
+        accuracies = [accuracies[i-1]/i for i in range(1, self.split+1)]
+                
+        self.logger.info(f'Result accuracy for each task : {accuracies}')
+        print(toGreen(f'Forgetting for each task : {forgetting}'))
         self.model.train()
