@@ -179,6 +179,7 @@ class LVT(nn.Module):
             
     def forward_backbone(self, input):
         out = self.backbone(input)
+        out = F.adaptive_avg_pool2d(out, (1,1))
         out = self.shrink1(self.stage1(out))
         out = self.shrink2(self.stage2(out))
         out = self.stage3(out)
