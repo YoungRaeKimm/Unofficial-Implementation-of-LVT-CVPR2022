@@ -113,9 +113,9 @@ class Trainer():
         self.logger.info(f'alpha :{self.alpha} | beta : {self.beta} | gamma : {self.gamma} | rt : {self.rt} | num_head : {self.num_head} | hidden_dim : {self.hidden_dim} | memory_size : {self.memory_size} | dataset : {self.dataset}')
         
     '''
-    Save the model and memory according to the task number.
+    Save the model according to the task number.
     '''
-    def save(self, model, memory, task):
+    def save(self, model, task):
         model_name = f"{self.dataset}_model_{self.model_time}_task_{task}.pt"
         print(f'Model saved as {model_name}')
         cur_dir = os.path.dirname(os.path.realpath(__file__))
@@ -409,7 +409,7 @@ class Trainer():
                 self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, self.train_epoch/10, 0.1)
             
             '''Save model and memory'''
-            self.save(self.model, self.memory, task)
+            self.save(self.model, task)
             
             '''test'''
             self.eval(task)
@@ -475,12 +475,16 @@ class Trainer():
                 # print(toGreen(f'Total test accuracy on task {task_id} : {task_result}'))
                 result_acc[task_id, :task_id+1] = np.array(task_result)
                 
-        forgetting = []
-        for t in range(self.split):
-            forgetting.append(max(result_acc[:,t] - result_acc[self.split-1,t]))
+        avg_forgetting = [0]
+        for t in range(1, self.split):
+            forgetting = []
+            for i in range(t):
+                forgetting.append(max(result_acc[:,i] - result_acc[t,i]))
+            avg_forgetting.append(sum(forgetting)/len(forgetting))
         accuracies = np.sum(result_acc, axis=1)
         accuracies = [accuracies[i-1]/i for i in range(1, self.split+1)]
                 
         self.logger.info(f'Result accuracy for each task : {accuracies}')
-        print(toGreen(f'Forgetting for each task : {forgetting}'))
-        self.model.train()
+        print(toGreen(f'Result accuracy for each task : {accuracies}'))
+        self.logger.info(f'Forgetting for each task : {avg_forgetting}')
+        print(toGreen(f'Forgetting for each task : {avg_forgetting}'))
