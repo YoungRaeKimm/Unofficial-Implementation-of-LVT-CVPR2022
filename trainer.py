@@ -107,6 +107,10 @@ class Trainer():
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         log_name = f"{self.model_time}_fix_z.log"
         cur_dir = os.path.dirname(os.path.realpath(__file__))
+        if os.path.exists(os.path.join(cur_dir, self.log_dir)) == False:
+            os.makedirs(os.path.join(cur_dir, self.log_dir,'logs'), exist_ok=True)
+            os.makedirs(os.path.join(cur_dir, self.log_dir,'saved_models'), exist_ok=True)
+            os.makedirs(os.path.join(cur_dir, self.log_dir,'best_models'), exist_ok=True)
         file_handler = logging.FileHandler(os.path.join(cur_dir, self.log_dir, 'logs', log_name))
         file_handler.setFormatter(formatter)
         self.logger.addHandler(file_handler)
@@ -464,7 +468,7 @@ class Trainer():
                 '''Load model'''
                 self.model = LVT(batch=self.batch_size, n_class=self.increment*(task_id+1), IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias, device=self.device).to(self.device)
                 cur_dir = os.path.dirname(os.path.realpath(__file__))
-                model_name = f'{self.dataset}_task_{task_id}.pt'
+                model_name = f'{self.ILtype}_{self.dataset}_task_{task_id}.pt'
                 self.model = torch.load(os.path.join(os.path.join(cur_dir, self.log_dir, "best_models", model_name)), map_location=self.device)
                 self.model.add_classes(self.increment)
                 '''evaluation for task task_id'''
