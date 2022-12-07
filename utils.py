@@ -71,15 +71,14 @@ def IncrementalDataLoader(dataset_name, data_path, train, n_split, task_id, batc
         return False
 
     dataset_name = dataset_name.lower()
-    download = os.path.exists(data_path) == False
     n_classes = 100
     if dataset_name == 'cifar100':
-        dataset = CIFAR100(data_path, download=download, train=train)
+        dataset = CIFAR100(data_path, train=train)
     elif dataset_name == 'tinyimagenet200':
-        dataset = TinyImageNet200(data_path, download=download, train=train)
+        dataset = TinyImageNet200(data_path, train=train)
         n_classes = 200
     elif dataset_name == 'imagenet100':
-        dataset = ImageNet100(data_path, download=download, train=train)
+        dataset = ImageNet100(data_path, train=train)
     else:
         print('invalid dataset : ', dataset_name)
         return False
