@@ -10,9 +10,9 @@ CUDA_VISIBLE_DEVICES=0 python3 -B ../run.py \
                         --ILtype task \
                         --dataset cifar100 \
                         --split 10 \
-                        --alpha 0.01 \
-                        --beta 0.01 \
-                        --gamma 0.01 \
+                        --alpha 1. \
+                        --beta 1. \
+                        --gamma 0.5 \
                         --memory_size 1000 \
                         --rt 10. \
                         --num_head 4 \

@@ -133,12 +133,12 @@ class Trainer():
         self.logger = logging.getLogger()
         self.logger.setLevel(logging.INFO)
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        log_name = f"{self.model_time}_realfinal.log"
+        log_name = f"{self.model_time}_fix_z.log"
         cur_dir = os.path.dirname(os.path.realpath(__file__))
         file_handler = logging.FileHandler(os.path.join(cur_dir, self.log_dir, 'logs', log_name))
         file_handler.setFormatter(formatter)
         self.logger.addHandler(file_handler)
-        self.logger.info(f'alpha :{self.alpha} | beta : {self.beta} | gamma : {self.gamma} | rt : {self.rt} | num_head : {self.num_head} | hidden_dim : {self.hidden_dim}')
+        self.logger.info(f'alpha :{self.alpha} | beta : {self.beta} | gamma : {self.gamma} | rt : {self.rt} | num_head : {self.num_head} | hidden_dim : {self.hidden_dim} | memory_size : {self.memory_size}')
         
     '''
     Save the model and memory according to the task number.
@@ -197,6 +197,7 @@ class Trainer():
                         torch.zeros(self.memory_size, *x.shape),
                         torch.zeros(self.memory_size),
                         torch.zeros(self.memory_size),
+                        torch.zeros(self.memory_size, self.increment),
                         K
                     )
                 # else:
@@ -292,10 +293,11 @@ class Trainer():
                         Calculate the logit value from accumulation classifier on the data in memory buffer.
                         '''                        
                         memory_idx = np.random.permutation(self.memory_size)[:self.batch_size]
-                        mx,my,mt = self.memory[memory_idx]
+                        mx,my,mt,z = self.memory[memory_idx]
 
                         mx = mx.to(self.device)
                         my = my.type(torch.LongTensor).to(self.device)
+                        z = z.to(self.device)
 
                         if self.ILtype=='task':
                             my = my % self.increment
@@ -306,13 +308,13 @@ class Trainer():
                             for i in range(self.batch_size):
                                 if L_r is None:
                                     acc_logit = self.model.forward_acc(features[i,...], int(mt[i].item()))
-                                    z = self.prev_model.forward_acc(features_prev[i,...], int(mt[i].item())).unsqueeze(0)
+                                    # z = self.prev_model.forward_acc(features_prev[i,...], int(mt[i].item())).unsqueeze(0)
                                     L_r = cross_entropy(acc_logit, my[i,...])
                                     acc_logit = acc_logit.unsqueeze(0)
                                 else:
                                     acc_log = self.model.forward_acc(features[i,...], int(mt[i].item()))
-                                    z_ = self.prev_model.forward_acc(features_prev[i,...], int(mt[i].item()))
-                                    z = torch.concat([z, z_.unsqueeze(0)], dim=0)
+                                    # z_ = self.prev_model.forward_acc(features_prev[i,...], int(mt[i].item()))
+                                    # z = torch.concat([z, z_.unsqueeze(0)], dim=0)
                                     L_r += cross_entropy(acc_log, my[i,...])
                                     acc_logit = torch.concat([acc_logit, acc_log.unsqueeze(0)], dim=0)
                                     
@@ -400,13 +402,35 @@ class Trainer():
             if task > 0:
                 self.memory.remove_examplars(K)
 
+            '''Save previous model'''
+            self.prev_model = copy.deepcopy(self.model)
+            self.prev_model.eval()
+
             '''Add new examplars'''
             conf_score_sorted = conf_score.argsort()[::-1]
             for label in range(self.increment*task, self.increment*(task+1)):
                 new_x = xs[conf_score_sorted[labels==label][:K]]
                 new_y = labels[conf_score_sorted[labels==label][:K]]
                 new_t = torch.full((K,), task).type(torch.LongTensor)
-                self.memory.update_memory(label, new_x, new_y, new_t)
+                new_z = None
+                
+                for chunk in range(0, new_x.shape[0], self.batch_size):
+                    x = new_x[chunk:chunk+self.batch_size]
+                    n_samples = x.shape[0]
+                    if n_samples < 32:
+                        pad_size = self.batch_size - n_samples
+                        zero_pad = torch.zeros((pad_size, *x.shape[1:]))
+                        x = torch.concat([x, zero_pad])
+                    x = x.to(device=self.device)
+                    z = self.prev_model.forward_acc(self.prev_model.forward_backbone(x))
+                    z = z[:n_samples].detach().cpu()
+                    if new_z is None:
+                        new_z = z
+                    else:
+                        new_z = torch.concat([new_z, z], dim=0)
+                print('x shape : ', new_x.shape)
+                print('z shape : ', new_z.shape)
+                self.memory.update_memory(label, new_x, new_y, new_t, new_z)
                 
             '''updatae r(t)'''
             self.rt *= 0.9
@@ -423,9 +447,6 @@ class Trainer():
                 self.model.add_classes(self.increment)
                 self.cur_classes += self.increment
             
-            '''Save previous model'''
-            self.prev_model = copy.deepcopy(self.model)
-            self.prev_model.eval()
             
             '''Reset optimizer'''
             self.optimizer = optim.SGD(self.model.parameters(), lr = self.lr)
@@ -458,8 +479,8 @@ class Trainer():
                         acc_logit = self.model.forward_acc(self.model.forward_backbone(x))
 
                     _, predicted = torch.max(acc_logit, 1)
-                    print(predicted)
-                    print(y)
+                    # print(predicted)
+                    # print(y)
                     correct += (predicted == y).sum().item()
                     total += y.size(0)
                 acc.append(100*correct/total)
