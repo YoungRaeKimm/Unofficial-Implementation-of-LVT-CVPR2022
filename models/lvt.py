@@ -60,6 +60,42 @@ class Attention(nn.Module):
         out = self.project_out(out)
         return out
 
+class Attention_raw(nn.Module):
+    def __init__(self, batch, dim, num_heads, bias, device):
+        super(Attention_raw, self).__init__()
+        self.num_heads = num_heads
+        
+        self.dim = dim
+        self.device = device
+
+        self.temperature = nn.Parameter(torch.ones(num_heads, 1, 1))
+        self.to_qkv = nn.Linear(dim, dim * 3, bias = False)
+        self.project_out = nn.Conv2d(dim, dim, kernel_size=1, bias=bias)
+        
+    def forward(self, x):
+        b,c,h,w = x.shape
+
+        qkv = self.to_qkv(x.squeeze())
+        q, k, v = qkv.chunk(3, dim=1)
+
+        # Unsqueeze to 4 dimension
+        q = q.unsqueeze(2).unsqueeze(2)
+        v = v.unsqueeze(2).unsqueeze(2)
+        k = k.unsqueeze(2).unsqueeze(2)
+
+        q = rearrange(q, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
+        k = rearrange(k, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
+        v = rearrange(v, 'b (head c) h w -> b head c (h w)', head=self.num_heads)
+        
+        attn = q @ k.transpose(-2, -1)
+        attn = attn * self.temperature
+        attn = attn.softmax(dim=-1)
+        out = (attn @ v)
+        out = rearrange(out, 'b head c (h w) -> b (head c) h w', head=self.num_heads, h=h, w=w)
+
+        out = self.project_out(out)
+        return out
+
 '''
 As written in LVT paper, the GELU activation function 
 '''
@@ -77,10 +113,13 @@ class FeedForward(nn.Module):
         return self.net(x)
     
 class TransformerBlock(nn.Module):
-    def __init__(self, batch, dim, num_heads, hidden_dim, bias, device):
+    def __init__(self, batch, dim, num_heads, hidden_dim, bias, device, ablation=False):
         super(TransformerBlock, self).__init__()
 
-        self.attn = Attention(batch, dim, num_heads, bias, device)
+        if ablation:
+            self.attn = Attention_raw(batch, dim, num_heads, bias, device)
+        else:
+            self.attn = Attention(batch, dim, num_heads, bias, device)
         self.conv = nn.Conv2d(dim, dim, kernel_size=1, bias=bias)
         self.ffn = FeedForward(dim, hidden_dim, bias)
         self.bn = nn.BatchNorm2d(dim)
@@ -102,18 +141,18 @@ class Backbone(nn.Module):
         return self.backbone(x)
     
 class LVT(nn.Module):
-    def __init__(self, n_class, batch, IL_type, dim, num_heads, hidden_dim, bias, device):
+    def __init__(self, n_class, batch, IL_type, dim, num_heads, hidden_dim, bias, device, ablation):
         super(LVT, self).__init__()
         self.n_class = n_class
         self.IL_type = IL_type
         self.dim = dim
         self.device = device
         self.backbone = Backbone().eval()
-        self.stage1 = nn.Sequential(*[TransformerBlock(batch=batch, dim=dim, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias, device=self.device) for i in range(2)])
+        self.stage1 = nn.Sequential(*[TransformerBlock(batch=batch, dim=dim, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias, device=self.device, ablation=ablation) for i in range(2)])
         self.shrink1 = nn.Conv2d(dim, dim*2, kernel_size=3, stride=2, padding=1, bias=bias)
-        self.stage2 = nn.Sequential(*[TransformerBlock(batch=batch, dim=dim*2, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias, device=self.device) for i in range(2)])
+        self.stage2 = nn.Sequential(*[TransformerBlock(batch=batch, dim=dim*2, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias, device=self.device, ablation=ablation) for i in range(2)])
         self.shrink2 = nn.Conv2d(dim*2, dim*4, kernel_size=3, stride=2, padding=1, bias=bias)
-        self.stage3 = nn.Sequential(*[TransformerBlock(batch=batch, dim=dim*4, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias, device=self.device) for i in range(2)])
+        self.stage3 = nn.Sequential(*[TransformerBlock(batch=batch, dim=dim*4, num_heads=num_heads, hidden_dim=hidden_dim, bias=bias, device=self.device, ablation=ablation) for i in range(2)])
         # self.injection_classifier = Classifier(features_dim = dim*4, n_classes = n_class, init = 'kaiming', device=self.device)
         # self.accumulation_classifier = Classifier(features_dim = dim*4, n_classes = n_class, init = 'kaiming', device=self.device)
         self.inj_clf = torch.nn.Linear(dim*4, n_class, bias=False)

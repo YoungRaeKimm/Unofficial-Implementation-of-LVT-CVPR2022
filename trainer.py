@@ -63,6 +63,11 @@ class Trainer():
         self.increment = int(self.n_classes//self.split)
         self.cur_classes = self.increment
         self.model_time = time.strftime("%Y%m%d_%H%M%S")
+        self.ablate_attn = config.ablate_attn
+        self.ablate_memupdate = config.ablate_memupdate
+        self.ablate_inj = config.ablate_inj
+        self.ablate_acc = config.ablate_acc
+        assert(np.array([self.ablate_attn, self.ablate_memupdate, self.ablate_inj, self.ablate_acc]).sum() <= 1)
         
         # hyper parameter
         self.num_head = config.num_head             # number of heads in attention 
@@ -77,7 +82,7 @@ class Trainer():
         '''
         Create the LVT and initialize the parameters.
         '''
-        self.model = LVT(batch=self.batch_size, n_class=self.increment, IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias, device=self.device).to(self.device)
+        self.model = LVT(batch=self.batch_size, n_class=self.increment, IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias, device=self.device, ablation = self.ablate_attn).to(self.device)
         self.prev_model = None
         self.model.apply(init_xavier)
         
@@ -215,8 +220,22 @@ class Trainer():
                         y = y % self.increment
 
                     feature = self.model.forward_backbone(x)
-                    inj_logit = self.model.forward_inj(feature)
-                    acc_logit = self.model.forward_acc(feature)
+
+                    if self.ablate_inj:
+                        acc_logit = self.model.forward_acc(feature)
+                        inj_logit = self.model.forward_acc(feature)
+                        L_It = 0
+                        L_At = cross_entropy(acc_logit, y)
+                    elif self.ablate_acc:
+                        acc_logit = self.model.forward_inj(feature)
+                        inj_logit = self.model.forward_inj(feature)
+                        L_It = cross_entropy(inj_logit, y)
+                        L_At = 0
+                    else:
+                        inj_logit = self.model.forward_inj(feature)
+                        acc_logit = self.model.forward_acc(feature)
+                        L_It = cross_entropy(inj_logit, y)
+                        L_At = cross_entropy(acc_logit, y)
 
                     # if task == 0:
                     #     acc_logit = torch.zeros_like(inj_logit).to(self.device)
@@ -229,8 +248,8 @@ class Trainer():
                     L_At is cross entropy loss value between output of the
                     accumulation classifier and GT value.
                     '''
-                    L_It = cross_entropy(inj_logit, y)
-                    L_At = cross_entropy(acc_logit, y)
+                    # L_It = cross_entropy(inj_logit, y)
+                    # L_At = cross_entropy(acc_logit, y)
                     
                     # Train memory if task>0
                     '''
@@ -295,14 +314,22 @@ class Trainer():
                     '''If first task, then only the losses obtained by new data are backpropagated.
                     Or, accumulate the losses from memory such as L_r, L_d into L_l'''
                     if task == 0:
-                        total_loss = L_It + L_At
+                        if self.ablate_inj:
+                            total_loss = L_At
+                        elif self.ablate_acc:
+                            total_loss = L_It
+                        else:
+                            total_loss = L_It + L_At
                     else:
                         # L_r = cross_entropy(acc_logit, my)
                         if self.ILtype == 'class':
                             L_d = kl_divergence(nn.functional.log_softmax((z/self.T), dim=1), self.act(acc_logit[:,:self.cur_classes-self.increment]/self.T))
                         else:
                             L_d = kl_divergence(nn.functional.log_softmax((z/self.T), dim=1), self.act(acc_logit/self.T))
-                        L_l = self.alpha*L_r + self.beta*L_d + self.rt*L_At
+                        if self.ablate_acc:
+                            L_l = 0
+                        else:
+                            L_l = self.alpha*L_r + self.beta*L_d + self.rt*L_At
                         total_loss = L_l + L_It + self.gamma*L_a
                         
                     # To log the accuracy, calculate that
@@ -348,7 +375,10 @@ class Trainer():
                 if self.ILtype == 'task':
                     y = y % self.increment
                 feature = self.model.forward_backbone(x)
-                inj_logit = self.model.forward_inj(feature)
+                if self.ablate_inj:
+                    inj_logit = self.model.forward_acc(featrue)
+                else:
+                    inj_logit = self.model.forward_inj(feature)
 
                 conf_score_list.append(confidence_score(inj_logit.detach(), y.detach()).numpy())
                 # store logit z=inj_logit for each x
@@ -366,7 +396,10 @@ class Trainer():
             self.prev_model.eval()
 
             '''Add new examplars'''
-            conf_score_sorted = conf_score.argsort()[::-1]
+            if self.ablate_memupdate:
+                conf_score_sorted = np.random.permutation(conf_score)
+            else:
+                conf_score_sorted = conf_score.argsort()[::-1]
             for label in range(self.increment*task, self.increment*(task+1)):
                 new_x = xs[conf_score_sorted[labels==label][:K]]
                 new_y = labels[conf_score_sorted[labels==label][:K]]
@@ -436,7 +469,10 @@ class Trainer():
                     y = y.to(device=self.device)
                     if self.ILtype == 'task':
                         y = y % self.increment
-                        acc_logit = self.model.forward_acc(self.model.forward_backbone(x), task_id)
+                        if self.ablate_acc:
+                            acc_logit = self.model.forward_inj(self.model.forward_backbone(x), task_id)
+                        else:
+                            acc_logit = self.model.forward_acc(self.model.forward_backbone(x), task_id)
                     else:
                         acc_logit = self.model.forward_acc(self.model.forward_backbone(x))
 
@@ -468,7 +504,7 @@ class Trainer():
         with torch.no_grad():
             for task_id in range(self.split):
                 '''Load model'''
-                self.model = LVT(batch=self.batch_size, n_class=self.increment*(task_id+1), IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias, device=self.device).to(self.device)
+                self.model = LVT(batch=self.batch_size, n_class=self.increment*(task_id+1), IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias, device=self.device, ablation=self.ablate_attn).to(self.device)
                 cur_dir = os.path.dirname(os.path.realpath(__file__))
                 model_name = f'{self.ILtype}_{self.dataset}_task_{task_id}.pt'
                 self.model = torch.load(os.path.join(os.path.join(cur_dir, self.log_dir, "best_models", model_name)), map_location=self.device)

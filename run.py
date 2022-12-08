@@ -20,6 +20,10 @@ if __name__ == '__main__':
     parser.add_argument('--num_head', type = int, default = 2, help = 'number of attention head')
     parser.add_argument('--hidden_dim', type = int, default = 512, help = 'number of hidden dimension of attention')
     parser.add_argument('--memory_size', type = int, default = 500, help = 'memory buffer size')
+    parser.add_argument('--ablate_attn', type = bool, default = False, help = 'ablation option for inter-task attention')
+    parser.add_argument('--ablate_memupdate', type = bool, default = False, help = 'ablation option for confidence-aware memory update')
+    parser.add_argument('--ablate_inj', type = bool, default = False, help = 'ablation option for injection classifier')
+    parser.add_argument('--ablate_acc', type = bool, default = False, help = 'ablation option for accumulation classifier')
     args, _ = parser.parse_known_args()
 
     config = get_config(dataset=args.dataset)
@@ -37,6 +41,10 @@ if __name__ == '__main__':
     config.num_head = args.num_head
     config.hidden_dim = args.hidden_dim
     config.memory_size = args.memory_size
+    config.ablate_attn = args.ablate_attn
+    config.ablate_memupdate = args.ablate_memupdate
+    config.ablate_inj = args.ablate_inj
+    config.ablate_acc = args.ablate_acc
 
 
     trainer = Trainer(config)
