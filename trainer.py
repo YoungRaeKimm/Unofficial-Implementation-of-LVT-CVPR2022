@@ -120,7 +120,7 @@ class Trainer():
         file_handler.setFormatter(formatter)
         self.logger.addHandler(file_handler)
         self.logger.info(f'alpha :{self.alpha} | beta : {self.beta} | gamma : {self.gamma} | rt : {self.rt} | num_head : {self.num_head} | hidden_dim : {self.hidden_dim} | memory_size : {self.memory_size} | dataset : {self.dataset}')
-        ablated = np.array(['attn', 'acc', 'inj', 'memory update'])np.array([self.ablate_attn, self.ablate_acc, self.ablate_inj, self.ablate_memupdate])
+        ablated = np.array(['attn', 'acc', 'inj', 'memory update'])[np.array([self.ablate_attn, self.ablate_acc, self.ablate_inj, self.ablate_memupdate])]
         self.logger.info(f'ablated : {ablated[0]}')
         
     '''
