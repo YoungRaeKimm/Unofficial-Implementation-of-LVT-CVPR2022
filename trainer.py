@@ -110,7 +110,7 @@ class Trainer():
         self.logger = logging.getLogger()
         self.logger.setLevel(logging.INFO)
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        log_name = f"{self.model_time}_fix_z.log"
+        log_name = f"{self.model_time}_ablation.log"
         cur_dir = os.path.dirname(os.path.realpath(__file__))
         if os.path.exists(os.path.join(cur_dir, self.log_dir)) == False:
             os.makedirs(os.path.join(cur_dir, self.log_dir,'logs'), exist_ok=True)
@@ -120,6 +120,8 @@ class Trainer():
         file_handler.setFormatter(formatter)
         self.logger.addHandler(file_handler)
         self.logger.info(f'alpha :{self.alpha} | beta : {self.beta} | gamma : {self.gamma} | rt : {self.rt} | num_head : {self.num_head} | hidden_dim : {self.hidden_dim} | memory_size : {self.memory_size} | dataset : {self.dataset}')
+        ablated = np.array(['attn', 'acc', 'inj', 'memory update'])np.array([self.ablate_attn, self.ablate_acc, self.ablate_inj, self.ablate_memupdate])
+        self.logger.info(f'ablated : {ablated[0]}')
         
     '''
     Save the model according to the task number.
