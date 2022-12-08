@@ -175,7 +175,7 @@ class Trainer():
             represents the importance the last task. (equation (2))
             The average value of gradient is calculated in here.
             '''
-            if task > 0:
+            if task > 0 and not self.ablate_attn:
                 prev_avg_K_grad = None
                 prev_avg_bias_grad = None
                 length = 0
@@ -266,7 +266,10 @@ class Trainer():
                         when the previous gradient value exists.
                         This loss can be regarded as the interation with previous task.
                         '''
-                        L_a = (torch.abs(torch.tensordot(prev_avg_K_grad, (self.model.get_K() - K_w_prev)))).sum() / 32. + \
+                        if self.ablate_attn:
+                            L_a = 0
+                        else:
+                            L_a = (torch.abs(torch.tensordot(prev_avg_K_grad, (self.model.get_K() - K_w_prev)))).sum() / 32. + \
                                 (torch.abs(torch.tensordot(prev_avg_bias_grad, (self.model.get_bias() - K_bias_prev), dims=([2, 1], [2, 1])))).sum() / 32.
                         
                         '''
