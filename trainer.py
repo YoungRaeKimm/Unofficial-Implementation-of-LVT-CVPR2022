@@ -229,10 +229,10 @@ class Trainer():
                         L_It = 0
                         L_At = cross_entropy(acc_logit, y)
                     elif self.ablate_acc:
-                        acc_logit = self.model.forward_inj(feature)
                         inj_logit = self.model.forward_inj(feature)
+                        acc_logit = self.model.forward_acc(feature)
                         L_It = cross_entropy(inj_logit, y)
-                        L_At = 0
+                        L_At = cross_entropy(acc_logit, y)
                     else:
                         inj_logit = self.model.forward_inj(feature)
                         acc_logit = self.model.forward_acc(feature)
@@ -322,7 +322,7 @@ class Trainer():
                         if self.ablate_inj:
                             total_loss = L_At
                         elif self.ablate_acc:
-                            total_loss = L_It
+                            total_loss = L_It + L_At
                         else:
                             total_loss = L_It + L_At
                     else:
@@ -332,7 +332,7 @@ class Trainer():
                         else:
                             L_d = kl_divergence(nn.functional.log_softmax((z/self.T), dim=1), self.act(acc_logit/self.T))
                         if self.ablate_acc:
-                            L_l = 0
+                            L_l = self.alpha*L_r + self.rt*L_At
                         else:
                             L_l = self.alpha*L_r + self.beta*L_d + self.rt*L_At
                         total_loss = L_l + L_It + self.gamma*L_a
