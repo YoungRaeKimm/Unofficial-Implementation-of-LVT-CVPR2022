@@ -474,10 +474,7 @@ class Trainer():
                     y = y.to(device=self.device)
                     if self.ILtype == 'task':
                         y = y % self.increment
-                        if self.ablate_acc:
-                            acc_logit = self.model.forward_inj(self.model.forward_backbone(x), task_id)
-                        else:
-                            acc_logit = self.model.forward_acc(self.model.forward_backbone(x), task_id)
+                        acc_logit = self.model.forward_acc(self.model.forward_backbone(x), task_id)
                     else:
                         acc_logit = self.model.forward_acc(self.model.forward_backbone(x))
 
