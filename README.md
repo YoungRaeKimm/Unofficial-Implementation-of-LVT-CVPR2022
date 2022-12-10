@@ -30,7 +30,16 @@ cd scripts
 bash cifar.sh
 ~~~
 
-### 
+### Citation
+~~~
+@inproceedings{wang2022continual,
+  title={Continual Learning With Lifelong Vision Transformer},
+  author={Wang, Zhen and Liu, Liu and Duan, Yiqun and Kong, Yajing and Tao, Dacheng},
+  booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition},
+  pages={171--181},
+  year={2022}
+}
+~~~
 
 
 ### 
