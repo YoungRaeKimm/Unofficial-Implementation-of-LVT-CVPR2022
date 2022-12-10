@@ -1,4 +1,4 @@
-# CS492-projcet
+# CS492-project
 ## [Continual Learning with Lifelong Vision Transformer](https://openaccess.thecvf.com/content/CVPR2022/papers/Wang_Continual_Learning_With_Lifelong_Vision_Transformer_CVPR_2022_paper.pdf "논문")
 **Team2: Changhui Kim(20200172), Youngrae Kim(20223126)**
 
