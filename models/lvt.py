@@ -201,6 +201,9 @@ class LVT(nn.Module):
         else:
             return self.prev_acc_clf[task_id](input.squeeze())
         
+    '''
+    Add classes after task.
+    '''
     def add_classes(self, n_class):
         if self.IL_type == 'class':
             self.n_class += n_class
