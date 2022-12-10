@@ -39,6 +39,7 @@ def init_xavier(submodule):
         for sm in list(submodule.children()):
             init_xavier(sm)
 
+
 '''
 All training and testing functions are implemented in this class.
 '''
@@ -96,6 +97,19 @@ class Trainer():
         np.random.seed(seed)
         torch.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
+
+        '''
+        Set logger and log configs
+        '''
+        self.logger = logging.getLogger()
+        self.logger.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        log_name = f"{self.model_time}.log"
+        cur_dir = os.path.dirname(os.path.realpath(__file__))
+        file_handler = logging.FileHandler(os.path.join(cur_dir, self.log_dir, 'logs', log_name))
+        file_handler.setFormatter(formatter)
+        self.logger.addHandler(file_handler)
+        self.logger.info(f'alpha :{self.alpha} | beta : {self.beta} | gamma : {self.gamma} | rt : {self.rt} | num_head : {self.num_head} | hidden_dim : {self.hidden_dim}')
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 

@@ -8,6 +8,14 @@ import numpy as np
 import termcolor
 import os
 
+'''random seed'''
+import random
+seed = 1234
+random.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)
+
 
 def toRed(content):
     return termcolor.colored(content,"red",attrs=["bold"])

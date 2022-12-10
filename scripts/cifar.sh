@@ -6,7 +6,7 @@ timestamp=$(date +%s)
                         # --resume_task 1 \
                         # --resume_time 20221201_1356 \
 py3clean ./
-CUDA_VISIBLE_DEVICES=0 python3 -B ../run.py \
+CUDA_VISIBLE_DEVICES=2 python3 -B ../run.py \
                         --ILtype task \
                         --dataset cifar100 \
                         --split 10 \
