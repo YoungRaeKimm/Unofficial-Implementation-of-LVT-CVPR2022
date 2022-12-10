@@ -5,7 +5,7 @@
 
 ### Get Started
 ~~~
-git clone https://github.com/YoungRaeKimm/CS492-projcet.git
+git clone https://github.com/YoungRaeKimm/CS492-project.git
 cd CS492-project
 pip install -r requirements.txt
 ~~~
