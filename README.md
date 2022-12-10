@@ -4,9 +4,11 @@
 
 
 ### Get Started
+You must have pre-installed PyTorch library. The version of PyTorch depends on the CUDA driver version of your environment, therefore, we don't deal with installing PyTorch.
 ~~~
 git clone https://github.com/YoungRaeKimm/CS492-project.git
 cd CS492-project
+
 pip install -r requirements.txt
 ~~~
 
