@@ -13,6 +13,7 @@ You must have pre-installed PyTorch library.
 git clone https://github.com/YoungRaeKimm/CS492-project.git
 cd CS492-project
 mkdir -p ckpt/logs
+mkdir -p ckpt/best_models
 pip install -r requirements.txt
 ~~~
 
@@ -30,7 +31,7 @@ bash test_cifar.sh
 ~~~
 
 ### Train
-Just run the scripts according to the dataset.
+Just run the scripts according to the dataset. We use RTX 3090 in training.
 ~~~
 cd scripts
 bash cifar.sh
