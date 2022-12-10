@@ -3,7 +3,6 @@ import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torchvision.transforms as transforms
 import pickle as pkl
 import random
 import numpy as np
@@ -11,7 +10,7 @@ import logging
 
 from copy import deepcopy
 from models.lvt import *
-from utils import IncrementalDataLoader, confidence_score, MemoryDataset, toRed, toBlue, toGreen
+from utils import IncrementalDataLoader, confidence_score, MemoryDataset, get_transforms, toRed, toBlue, toGreen
     
 
 '''random seed'''
@@ -23,19 +22,6 @@ torch.cuda.manual_seed_all(seed)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
         
-'''dataset transforms'''
-transform = [
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-]
-
-transform_test = [
-        transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-]
-
 '''Recursively initialize the parameters'''
 def init_xavier(submodule):
     if isinstance(submodule, torch.nn.Conv2d):
@@ -76,9 +62,6 @@ class Trainer():
         else:
             self.n_classes = 100
         self.increment = int(self.n_classes//self.split)
-        self.resume = config.resume
-        self.resume_task = config.resume_task
-        self.resume_time = config.resume_time
         self.cur_classes = self.increment
         self.model_time = time.strftime("%Y%m%d_%H%M%S")
         
@@ -90,25 +73,14 @@ class Trainer():
         self.beta = config.beta                     # coefficient of L_d
         self.gamma = config.gamma                   # coefficient of L_a
         self.rt = config.rt                         # coefficient of L_At
-        self.T = 10.                                 # softmax temperature, which is used in distillation loss
+        self.T = 2.                                 # softmax temperature, which is used in distillation loss
         
-
         '''
-        If resume flag is True, then create the LVT and load the saved check point
-        If it is False, then create the LVT and initialize the parameters.
+        Create the LVT and initialize the parameters.
         '''
-        if config.resume or config.test:
-            self.model = LVT(batch=self.batch_size, n_class=self.increment*self.resume_task, IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias, device=self.device).to(self.device)
-            cur_dir = os.path.dirname(os.path.realpath(__file__))
-            model_name = f'model_{self.resume_time}_task_{self.resume_task-1}.pt'
-            self.model = torch.load(os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", model_name)), map_location=self.device)
-            # import pdb; pdb.set_trace()
-            self.prev_model = deepcopy(self.model).to(self.device)
-            self.model.add_classes(self.increment)
-        else:
-            self.model = LVT(batch=self.batch_size, n_class=self.increment, IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias, device=self.device).to(self.device)
-            self.prev_model = None
-            self.model.apply(init_xavier)
+        self.model = LVT(batch=self.batch_size, n_class=self.increment, IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias, device=self.device).to(self.device)
+        self.prev_model = None
+        self.model.apply(init_xavier)
         
         '''
         Since dimension of memory depends on the dimension of input image,
@@ -147,30 +119,29 @@ class Trainer():
         self.logger = logging.getLogger()
         self.logger.setLevel(logging.INFO)
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        log_name = f"{self.model_time}_realfinal.log"
+        log_name = f"{self.model_time}_fix_z.log"
         cur_dir = os.path.dirname(os.path.realpath(__file__))
+        if os.path.exists(os.path.join(cur_dir, self.log_dir)) == False:
+            os.makedirs(os.path.join(cur_dir, self.log_dir,'logs'), exist_ok=True)
+            os.makedirs(os.path.join(cur_dir, self.log_dir,'saved_models'), exist_ok=True)
+            os.makedirs(os.path.join(cur_dir, self.log_dir,'best_models'), exist_ok=True)
         file_handler = logging.FileHandler(os.path.join(cur_dir, self.log_dir, 'logs', log_name))
         file_handler.setFormatter(formatter)
         self.logger.addHandler(file_handler)
-        self.logger.info(f'alpha :{self.alpha} | beta : {self.beta} | gamma : {self.gamma} | rt : {self.rt} | num_head : {self.num_head} | hidden_dim : {self.hidden_dim}')
+        self.logger.info(f'alpha :{self.alpha} | beta : {self.beta} | gamma : {self.gamma} | rt : {self.rt} | num_head : {self.num_head} | hidden_dim : {self.hidden_dim} | memory_size : {self.memory_size} | dataset : {self.dataset}')
         
     '''
-    Save the model and memory according to the task number.
+    Save the model according to the task number.
     '''
-    def save(self, model, memory, task):
-        # model_time = time.strftime("%Y%m%d_%H%M")
-        model_time = self.model_time
-        model_name = f"model_{model_time}_task_{task}.pt"
-        memory_name = f"memory_{model_time}_task_{task}.pt"
+    def save(self, model, task):
+        model_name = f"{self.dataset}_model_{self.model_time}_task_{task}.pt"
         print(f'Model saved as {model_name}')
-        print(f'Memory saved as {memory_name}')
         cur_dir = os.path.dirname(os.path.realpath(__file__))
         print(f'Path : {os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", model_name))}')
+        self.logger.info(f'Model saved as {model_name}')
         torch.save(model, os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", model_name)))
-        with open(os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", memory_name)), 'wb') as f:
-            pkl.dump(memory, f)
 
-   
+
     '''
     Core function.
     This function trains the model during whole tasks.
@@ -187,36 +158,23 @@ class Trainer():
         '''
         Task starts.
         '''
-        start_task = self.resume_task if self.resume is True else 0
-        for task in range(start_task, self.split):
-            # if task > 2:
-            #     break
-            data_loader = IncrementalDataLoader(self.dataset, self.data_path, True, self.split, task, self.batch_size, transform)
-            # print(data_loader)
+        for task in range(self.split):
+            data_loader = IncrementalDataLoader(self.dataset, self.data_path, True, self.split, task, self.batch_size, get_transforms(self.dataset))
             # x : (B, 3, 32, 32) | y : (B,) | t : (B,)
             x = data_loader.dataset[0][0]
             K = self.memory_size // (self.increment * (task+1))
 
             '''
             Initialize memory buffer.
-            If resume flag is True, load the saved memory.
-            Else make memory.
             '''
             if self.memory is None:
-                if self.resume:
-                    cur_dir = os.path.dirname(os.path.realpath(__file__))
-                    memory_name = f'memory_{self.resume_time}_task_{self.resume_task-1}.pt'
-                    with open(os.path.join(os.path.join(cur_dir, self.log_dir, "saved_models", memory_name)), 'rb') as f:
-                        self.memory = pkl.load(f)
-                else:
-                    self.memory = MemoryDataset(
-                        torch.zeros(self.memory_size, *x.shape),
-                        torch.zeros(self.memory_size),
-                        torch.zeros(self.memory_size),
-                        K
-                    )
-                # else:
-            #     memory_loader = DataLoader(MemoryDataset, batch_size=self.batch_size, shuffle=True)
+                self.memory = MemoryDataset(
+                    torch.zeros(self.memory_size, *x.shape),
+                    torch.zeros(self.memory_size),
+                    torch.zeros(self.memory_size),
+                    torch.zeros(self.memory_size, self.increment),
+                    K
+                )
 
             
             '''
@@ -228,7 +186,8 @@ class Trainer():
                 prev_avg_K_grad = None
                 prev_avg_bias_grad = None
                 length = 0
-                for x, y, _ in data_loader:
+                prev_data_loader = IncrementalDataLoader(self.dataset, self.data_path, True, self.split, task-1, self.batch_size, get_transforms(self.dataset))
+                for x, y, _ in prev_data_loader:
                     length += 1
                     x = x.to(device=self.device)
                     y = y.to(device=self.device)
@@ -255,7 +214,11 @@ class Trainer():
             Train one task during configured epoch.
             '''
             # train
-            for epoch in range(self.train_epoch):
+            if task == 0:
+                train_epoch = 50
+            else:
+                train_epoch = self.train_epoch
+            for epoch in range(train_epoch):
                 # Train current Task
                 correct, total = 0, 0
                 correct_m, total_m = 0, 0
@@ -296,17 +259,18 @@ class Trainer():
                         when the previous gradient value exists.
                         This loss can be regarded as the interation with previous task.
                         '''
-                        L_a = (torch.abs(torch.tensordot(prev_avg_K_grad, (self.model.get_K() - K_w_prev)))).sum() / 7168. + \
-                                (torch.abs(torch.tensordot(prev_avg_bias_grad, (self.model.get_bias() - K_bias_prev), dims=([2, 1], [2, 1])))).sum() / 196608.
+                        L_a = (torch.abs(torch.tensordot(prev_avg_K_grad, (self.model.get_K() - K_w_prev)))).sum() / 32. + \
+                                (torch.abs(torch.tensordot(prev_avg_bias_grad, (self.model.get_bias() - K_bias_prev), dims=([2, 1], [2, 1])))).sum() / 32.
                         
                         '''
                         Calculate the logit value from accumulation classifier on the data in memory buffer.
                         '''                        
                         memory_idx = np.random.permutation(self.memory_size)[:self.batch_size]
-                        mx,my,mt = self.memory[memory_idx]
+                        mx,my,mt,z = self.memory[memory_idx]
 
                         mx = mx.to(self.device)
                         my = my.type(torch.LongTensor).to(self.device)
+                        z = z.to(self.device)
 
                         if self.ILtype=='task':
                             my = my % self.increment
@@ -314,17 +278,16 @@ class Trainer():
                             features_prev = self.prev_model.forward_backbone(mx)
                             L_r = None
                             
-                            
                             for i in range(self.batch_size):
                                 if L_r is None:
                                     acc_logit = self.model.forward_acc(features[i,...], int(mt[i].item()))
-                                    z = self.prev_model.forward_acc(features_prev[i,...], int(mt[i].item())).unsqueeze(0)
+                                    # z = self.prev_model.forward_acc(features_prev[i,...], int(mt[i].item())).unsqueeze(0)
                                     L_r = cross_entropy(acc_logit, my[i,...])
                                     acc_logit = acc_logit.unsqueeze(0)
                                 else:
                                     acc_log = self.model.forward_acc(features[i,...], int(mt[i].item()))
-                                    z_ = self.prev_model.forward_acc(features_prev[i,...], int(mt[i].item()))
-                                    z = torch.concat([z, z_.unsqueeze(0)], dim=0)
+                                    # z_ = self.prev_model.forward_acc(features_prev[i,...], int(mt[i].item()))
+                                    # z = torch.concat([z, z_.unsqueeze(0)], dim=0)
                                     L_r += cross_entropy(acc_log, my[i,...])
                                     acc_logit = torch.concat([acc_logit, acc_log.unsqueeze(0)], dim=0)
                                     
@@ -343,18 +306,16 @@ class Trainer():
                             correct_m += (predicted_m == my).sum().item()
                             total_m += my.size(0)
                         
-                        # print(f'For dim: acclogit size {acc_logit.size()}, z size {z.size()}')
-                    else:
-                        L_a = torch.zeros_like(L_It).to(self.device)
-                        z = acc_logit
-
                     '''If first task, then only the losses obtained by new data are backpropagated.
                     Or, accumulate the losses from memory such as L_r, L_d into L_l'''
                     if task == 0:
                         total_loss = L_It + L_At
                     else:
                         # L_r = cross_entropy(acc_logit, my)
-                        L_d = kl_divergence(nn.functional.log_softmax((z/self.T), dim=1), self.act(acc_logit/self.T))
+                        if self.ILtype == 'class':
+                            L_d = kl_divergence(nn.functional.log_softmax((z/self.T), dim=1), self.act(acc_logit[:,:self.cur_classes-self.increment]/self.T))
+                        else:
+                            L_d = kl_divergence(nn.functional.log_softmax((z/self.T), dim=1), self.act(acc_logit/self.T))
                         L_l = self.alpha*L_r + self.beta*L_d + self.rt*L_At
                         total_loss = L_l + L_It + self.gamma*L_a
                         
@@ -414,13 +375,37 @@ class Trainer():
             if task > 0:
                 self.memory.remove_examplars(K)
 
+            '''Save previous model'''
+            self.prev_model = copy.deepcopy(self.model)
+            self.prev_model.eval()
+
             '''Add new examplars'''
             conf_score_sorted = conf_score.argsort()[::-1]
             for label in range(self.increment*task, self.increment*(task+1)):
                 new_x = xs[conf_score_sorted[labels==label][:K]]
                 new_y = labels[conf_score_sorted[labels==label][:K]]
                 new_t = torch.full((K,), task).type(torch.LongTensor)
-                self.memory.update_memory(label, new_x, new_y, new_t)
+                new_z = None
+                
+                for chunk in range(0, new_x.shape[0], self.batch_size):
+                    x = new_x[chunk:chunk+self.batch_size]
+                    n_samples = x.shape[0]
+                    if n_samples < 32:
+                        pad_size = self.batch_size - n_samples
+                        zero_pad = torch.zeros((pad_size, *x.shape[1:]))
+                        x = torch.concat([x, zero_pad])
+                    x = x.to(device=self.device)
+                    z = self.prev_model.forward_acc(self.prev_model.forward_backbone(x))
+                    z = z[:n_samples].detach().cpu()
+                    if new_z is None:
+                        new_z = z
+                    else:
+                        new_z = torch.concat([new_z, z], dim=0)
+                # print('x shape : ', new_x.shape)
+                # print('z shape : ', new_z.shape)
+                if self.ILtype == "class":
+                    new_z = new_z[:,-self.increment:]
+                self.memory.update_memory(label, new_x, new_y, new_t, new_z)
                 
             '''updatae r(t)'''
             self.rt *= 0.9
@@ -437,9 +422,6 @@ class Trainer():
                 self.model.add_classes(self.increment)
                 self.cur_classes += self.increment
             
-            '''Save previous model'''
-            self.prev_model = copy.deepcopy(self.model)
-            self.prev_model.eval()
             
             '''Reset optimizer'''
             self.optimizer = optim.SGD(self.model.parameters(), lr = self.lr)
@@ -447,21 +429,22 @@ class Trainer():
                 self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, self.train_epoch/10, 0.1)
             
             '''Save model and memory'''
-            self.save(self.model, self.memory, task)
+            self.save(self.model, task)
             
             '''test'''
             self.eval(task)
     
     '''
-    In this function, just evaluate the model on whole previous tasks.
+    In this function, just evaluate the model on whole previous tasks 
+    where the model is just after trained with current task data.
     '''
-    def eval(self, task):
+    def eval(self, task, test=False):
         self.model.eval()
         acc = []
         with torch.no_grad():
             for task_id in range(task+1):
                 correct, total = 0, 0
-                data_loader = IncrementalDataLoader(self.dataset, self.data_path, False, self.split, task_id, self.batch_size, transform_test)
+                data_loader = IncrementalDataLoader(self.dataset, self.data_path, False, self.split, task_id, self.batch_size, get_transforms(self.dataset, True))
                 for x, y, t in data_loader:
                     x = x.to(device=self.device)
                     y = y.to(device=self.device)
@@ -472,8 +455,8 @@ class Trainer():
                         acc_logit = self.model.forward_acc(self.model.forward_backbone(x))
 
                     _, predicted = torch.max(acc_logit, 1)
-                    print(predicted)
-                    print(y)
+                    # print(predicted)
+                    # print(y)
                     correct += (predicted == y).sum().item()
                     total += y.size(0)
                 acc.append(100*correct/total)
@@ -482,3 +465,44 @@ class Trainer():
         self.logger.info(f'Total test accuracy on task {task} : {sum(acc)/len(acc)}')
         print(toGreen(f'Total test accuracy on task {task} : {sum(acc)/len(acc)}'))
         self.model.train()
+        if test:
+            return acc
+        
+    
+    '''
+    Test the model.
+    The difference between eval function is that
+    this function evaluates the model which is loaded for every task.
+    In other words, for each task, the model is loaded according to the task number,
+    and it will be evaluated.
+    '''
+    def test(self):
+        self.model.eval()
+        result_acc = np.zeros((self.split, self.split))
+        with torch.no_grad():
+            for task_id in range(self.split):
+                '''Load model'''
+                self.model = LVT(batch=self.batch_size, n_class=self.increment*(task_id+1), IL_type=self.ILtype, dim=512, num_heads=self.num_head, hidden_dim=self.hidden_dim, bias=self.bias, device=self.device).to(self.device)
+                cur_dir = os.path.dirname(os.path.realpath(__file__))
+                model_name = f'{self.ILtype}_{self.dataset}_task_{task_id}.pt'
+                self.model = torch.load(os.path.join(os.path.join(cur_dir, self.log_dir, "best_models", model_name)), map_location=self.device)
+                self.model.add_classes(self.increment)
+                '''evaluation for task task_id'''
+                self.logger.info(f'Task {task_id}')
+                print(toRed(f'----- Task {task_id} -----'))
+                task_result = self.eval(task_id, True)
+                result_acc[task_id, :task_id+1] = np.array(task_result)
+                
+        avg_forgetting = [0]
+        for t in range(1, self.split):
+            forgetting = []
+            for i in range(t):
+                forgetting.append(max(result_acc[:,i] - result_acc[t,i]))
+            avg_forgetting.append(sum(forgetting)/len(forgetting))
+        accuracies = np.sum(result_acc, axis=1)
+        accuracies = [accuracies[i-1]/i for i in range(1, self.split+1)]
+                
+        self.logger.info(f'Result accuracy for each task : {accuracies}')
+        print(toGreen(f'Result accuracy for each task : {accuracies}'))
+        self.logger.info(f'Forgetting for each task : {avg_forgetting}')
+        print(toGreen(f'Forgetting for each task : {avg_forgetting}'))
